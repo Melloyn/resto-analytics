@@ -12,7 +12,12 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="RestoAnalytics: Место", layout="wide")
 st.title("📊 Аналитика: Бар МЕСТО")
 
-# --- 1. ФУНКЦИИ ДЛЯ ЧТЕНИЯ ДАТ ---
+# --- ИНИЦИАЛИЗАЦИЯ ПАМЯТИ (SESSION STATE) ---
+# Это "мозг" приложения, чтобы оно не забывало данные при кликах
+if 'df_full' not in st.session_state:
+    st.session_state.df_full = None
+
+# --- ФУНКЦИИ ---
 RUS_MONTHS = {
     'января': 1, 'февраля': 2, 'марта': 3, 'апреля': 4, 'мая': 5, 'июня': 6,
     'июля': 7, 'августа': 8, 'сентября': 9, 'октября': 10, 'ноября': 11, 'декабря': 12,
@@ -44,7 +49,6 @@ def process_single_file(file_content, filename=""):
         header_text = " ".join(df_raw.iloc[0:10, 0].astype(str).tolist())
         report_date = parse_russian_date(header_text)
         
-        # Если даты нет внутри, ищем в названии файла
         if not report_date:
             for rus, eng in [('feb', 'февраля'), ('jan', 'января'), ('mar', 'марта')]:
                 if rus in filename.lower():
@@ -80,11 +84,10 @@ def process_single_file(file_content, filename=""):
     except Exception:
         return None
 
-# --- 2. ЗАГРУЗКА С ЯНДЕКСА ---
 def load_all_from_yandex(folder_path):
     token = st.secrets.get("YANDEX_TOKEN")
     if not token:
-        st.error("⚠️ Ошибка: Вы не добавили YANDEX_TOKEN в настройки Secrets!")
+        st.error("⚠️ Нет YANDEX_TOKEN в Secrets!")
         return []
     
     headers = {'Authorization': f'OAuth {token}'}
@@ -94,7 +97,7 @@ def load_all_from_yandex(folder_path):
     try:
         response = requests.get(api_url, headers=headers, params=params)
         if response.status_code != 200:
-            st.error(f"Не могу найти папку '{folder_path}' на Диске. Код ошибки: {response.status_code}")
+            st.error(f"Ошибка Яндекс.Диска: {response.status_code}")
             return []
             
         items = response.json().get('_embedded', {}).get('items', [])
@@ -112,36 +115,39 @@ def load_all_from_yandex(folder_path):
             
         progress_bar.empty()
         return data_frames
-        
     except Exception as e:
-        st.error(f"Ошибка соединения: {e}")
+        st.error(f"Ошибка: {e}")
         return []
 
-# --- 3. ИНТЕРФЕЙС ---
-st.sidebar.header("📂 Источник данных")
-# По умолчанию ставим Яндекс, чтобы сразу работало
-source_mode = st.sidebar.radio("Режим:", ["Яндекс.Диск (Авто)", "Ручная загрузка (Тест)"])
+# --- ИНТЕРФЕЙС ЗАГРУЗКИ ---
+st.sidebar.header("📂 Управление данными")
+source_mode = st.sidebar.radio("Источник:", ["Яндекс.Диск", "Ручная загрузка"])
 
-all_data = []
-
-if source_mode == "Ручная загрузка (Тест)":
-    uploaded_files = st.sidebar.file_uploader("Файлы отчетов", accept_multiple_files=True)
+# Логика загрузки (сохраняем в st.session_state)
+if source_mode == "Ручная загрузка":
+    uploaded_files = st.sidebar.file_uploader("Файлы", accept_multiple_files=True)
     if uploaded_files:
+        temp_data = []
         for f in uploaded_files:
             df = process_single_file(f, f.name)
-            if df is not None: all_data.append(df)
-            
-elif source_mode == "Яндекс.Диск (Авто)":
-    # По умолчанию ищем в папке Отчеты_Ресторан
-    yandex_path = st.sidebar.text_input("Папка на Диске:", "Отчеты_Ресторан")
-    if st.sidebar.button("🔄 Скачать свежие данные"):
-        with st.spinner("Связываюсь с Яндексом..."):
-            all_data = load_all_from_yandex(yandex_path)
+            if df is not None: temp_data.append(df)
+        if temp_data:
+            # Сохраняем в память
+            st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
 
-# --- 4. АНАЛИТИКА И ПРОГНОЗ ---
-if all_data:
-    df_full = pd.concat(all_data, ignore_index=True)
-    df_full = df_full.sort_values(by='Дата_Отчета')
+elif source_mode == "Яндекс.Диск":
+    yandex_path = st.sidebar.text_input("Папка:", "Отчеты_Ресторан")
+    if st.sidebar.button("🔄 Скачать и Запомнить"):
+        with st.spinner("Загрузка с Яндекса..."):
+            temp_data = load_all_from_yandex(yandex_path)
+            if temp_data:
+                # Сохраняем в память
+                st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
+                st.success(f"Загружено файлов: {len(temp_data)}")
+
+# --- АНАЛИТИКА (Берем данные ИЗ ПАМЯТИ) ---
+if st.session_state.df_full is not None:
+    df_full = st.session_state.df_full # Достаем из "сейфа"
     
     dates_list = sorted(df_full['Дата_Отчета'].unique(), reverse=True)
     date_str_list = [d.strftime('%d.%m.%Y') for d in dates_list]
@@ -149,9 +155,9 @@ if all_data:
     
     st.write("---")
     col_sel1, col_sel2 = st.columns([1, 4])
-    selected_option = col_sel1.selectbox("📅 Период:", date_options)
+    selected_option = col_sel1.selectbox("📅 Выберите период:", date_options)
     
-    # === РЕЖИМ ИТОГИ ===
+    # === ИТОГИ ===
     if "ИТОГИ" in selected_option:
         st.subheader(f"📈 Сводка за {len(dates_list)} дн.")
         total_rev = df_full['Выручка с НДС'].sum()
@@ -163,7 +169,6 @@ if all_data:
         m2.metric("Себестоимость", f"{total_cost:,.0f} ₽")
         m3.metric("Фуд-кост %", f"{avg_fc:.1f}%")
         
-        # Топ блюд
         df_items = df_full.groupby(df_full.columns[0])[['Выручка с НДС', 'Себестоимость']].sum().reset_index()
         df_items['Фудкост'] = df_items['Себестоимость'] / df_items['Выручка с НДС'] * 100
         top_items = df_items.sort_values('Выручка с НДС', ascending=False).head(10)
@@ -171,14 +176,13 @@ if all_data:
         st.plotly_chart(px.bar(top_items, x=top_items.columns[0], y='Выручка с НДС', 
                         color='Фудкост', color_continuous_scale='RdYlGn_r', title="Топ продаж за всё время"), use_container_width=True)
 
-    # === РЕЖИМ КОНКРЕТНОГО ДНЯ ===
+    # === ДЕНЬ ===
     else:
         current_date = datetime.strptime(selected_option, '%d.%m.%Y')
         df_day = df_full[df_full['Дата_Отчета'] == current_date]
         day_rev = df_day['Выручка с НДС'].sum()
         day_cost = df_day['Себестоимость'].sum()
         
-        # Сравнение с прошлым днем
         delta_msg = "нет данных"
         try:
             curr_idx = date_str_list.index(selected_option)
@@ -204,29 +208,21 @@ if all_data:
                             color='Фудкост', color_continuous_scale='RdYlGn_r'), use_container_width=True)
                             
         with tab2:
-            st.info("ℹ️ **Как работает прогноз:** Система анализирует загруженные вами файлы, строит тренд продаж за последние дни и продлевает его в будущее.")
-            
-            # Подготовка данных для графика
+            st.info("Анализ динамики продаж и прогноз на 2 дня вперед.")
             daily_grp = df_full.groupby('Дата_Отчета')['Выручка с НДС'].sum().reset_index()
             
-            # ЛОГИКА ПРОГНОЗА: Среднее за последние 3 дня + небольшой рост
             last_3_avg = daily_grp['Выручка с НДС'].tail(3).mean()
             if pd.isna(last_3_avg): last_3_avg = day_rev
             
-            # Строим прогноз на 2 дня вперед
             future_days = [daily_grp['Дата_Отчета'].max() + timedelta(days=i) for i in range(1, 3)]
-            future_vals = [last_3_avg * 1.0, last_3_avg * 1.05] # Предполагаем стабильность и рост на 5%
+            future_vals = [last_3_avg * 1.0, last_3_avg * 1.05]
             
             fig_trend = go.Figure()
-            # 1. Линия факта (История)
             fig_trend.add_trace(go.Scatter(x=daily_grp['Дата_Отчета'], y=daily_grp['Выручка с НДС'],
                                            mode='lines+markers', name='Факт', line=dict(color='blue', width=3)))
-            # 2. Линия прогноза (Пунктир)
             fig_trend.add_trace(go.Scatter(x=future_days, y=future_vals,
                                            mode='lines+markers', name='Прогноз', line=dict(color='green', dash='dash')))
-            
             st.plotly_chart(fig_trend, use_container_width=True)
-            st.write(f"Ожидаемая выручка завтра: **~{future_vals[0]:,.0f} ₽**")
 
 else:
-    st.info("👈 Чтобы увидеть аналитику, выберите режим слева. \n\nДля Яндекса: Создайте папку 'Отчеты_Ресторан' и нажмите кнопку Обновить.")
+    st.info("👈 Нажмите 'Скачать' или загрузите файлы, чтобы начать.")
