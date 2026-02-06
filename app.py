@@ -2,157 +2,188 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import numpy as np
-from datetime import datetime, timedelta
+import requests
+import re
+from io import BytesIO
+from datetime import datetime
 
 # --- НАСТРОЙКИ СТРАНИЦЫ ---
 st.set_page_config(page_title="RestoAnalytics AI", layout="wide")
-st.title("📊 Ежедневная аналитика ресторана")
+st.title("📊 Ежедневная аналитика (История)")
 
-# --- БЛОК ЗАГРУЗКИ ДАННЫХ ---
-st.sidebar.header("Загрузка данных")
-uploaded_file = st.sidebar.file_uploader("Загрузите ежедневный отчет (Excel/CSV)", type=['csv', 'xlsx'])
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 
-# --- ФУНКЦИЯ ЧТЕНИЯ ФАЙЛА (Специфика твоего формата) ---
-def load_data(file):
-    # Твой файл имеет "шапку" на 5-6 строке, пропускаем лишнее
+def extract_date_from_header(df_raw):
+    """Пытаемся найти дату в заголовке файла (строки 0-4)"""
+    # Обычно дата в строке вида "Анализ продаж за 05.02.2026"
+    text_blob = " ".join(df_raw.iloc[0:5, 0].astype(str).tolist())
+    match = re.search(r'(\d{2}\.\d{2}\.\d{4})', text_blob)
+    if match:
+        return datetime.strptime(match.group(1), '%d.%m.%Y')
+    return None
+
+def process_single_file(file_content, filename=""):
+    """Читает один файл и превращает его в таблицу данных"""
     try:
-        # Пытаемся прочитать как Excel
-        df = pd.read_excel(file, header=5)
-    except:
-        # Если не вышло, как CSV
-        file.seek(0)
-        df = pd.read_csv(file, header=5)
-    
-    # Очистка названий колонок (убираем пробелы)
-    df.columns = df.columns.str.strip()
-    
-    # Фильтруем мусор (пустые строки и итоги)
-    # Предполагаем, что названия позиций в первом столбце 'Склады' или 'Номенклатура'
-    col_name = df.columns[0] 
-    df = df.dropna(subset=[col_name])
-    df = df[df[col_name] != "Итого"]
-    
-    # Преобразуем числа (убираем пробелы, меняем запятые на точки если нужно)
-    cols_to_num = ['Количество', 'Себестоимость', 'Выручка с НДС', 'Фудкост']
-    for col in cols_to_num:
-        if col in df.columns:
-            # Преобразуем в строку, убираем пробелы, меняем запятую на точку
-            df[col] = pd.to_numeric(df[col].astype(str).str.replace(' ', '').str.replace(',', '.'), errors='coerce').fillna(0)
+        # Читаем сначала заголовок, чтобы найти дату
+        if isinstance(file_content, BytesIO):
+            file_content.seek(0)
+        
+        # Сначала читаем "грязный" верх, чтобы найти дату
+        try:
+            df_raw = pd.read_excel(file_content, header=None, nrows=10)
+        except:
+            if isinstance(file_content, BytesIO): file_content.seek(0)
+            df_raw = pd.read_csv(file_content, header=None, nrows=10, encoding='utf-8', sep=None, engine='python')
             
-    # Расчет чистой удельной себестоимости (Item Cost)
-    # Защита от деления на ноль
-    df['Unit_Cost'] = df.apply(lambda x: x['Себестоимость'] / x['Количество'] if x['Количество'] > 0 else 0, axis=1)
-    
-    return df
+        report_date = extract_date_from_header(df_raw)
+        
+        # Если дату не нашли внутри, пробуем из имени файла, иначе - сегодня
+        if not report_date:
+            report_date = datetime.now() 
 
-# --- ГЕНЕРАЦИЯ ДЕМО-ДАННЫХ (ЧТОБЫ ТЫ УВИДЕЛ ГРАФИКИ СРАЗУ) ---
-# В реальности здесь будет база данных, но для старта симулируем историю
-def generate_history(current_df):
-    dates = pd.date_range(end=datetime.today(), periods=14)
-    history = []
+        # Теперь читаем саму таблицу (header=5 по твоей структуре)
+        if isinstance(file_content, BytesIO): file_content.seek(0)
+        try:
+            df = pd.read_excel(file_content, header=5)
+        except:
+            if isinstance(file_content, BytesIO): file_content.seek(0)
+            df = pd.read_csv(file_content, header=5)
+
+        # Очистка
+        df.columns = df.columns.str.strip()
+        col_name = df.columns[0] # Скорее всего 'Склады' или 'Номенклатура'
+        df = df.dropna(subset=[col_name])
+        df = df[df[col_name] != "Итого"]
+        
+        # Числа
+        cols_to_num = ['Количество', 'Себестоимость', 'Выручка с НДС', 'Фудкост']
+        for col in cols_to_num:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col].astype(str).str.replace(' ', '').str.replace(',', '.'), errors='coerce').fillna(0)
+        
+        # Добавляем колонку с датой этого отчета
+        df['Дата_Отчета'] = report_date
+        return df
+        
+    except Exception as e:
+        # st.error(f"Ошибка чтения файла {filename}: {e}")
+        return None
+
+# --- ЗАГРУЗКА С ЯНДЕКСА (МАССОВАЯ) ---
+def load_all_from_yandex(folder_path):
+    token = st.secrets.get("YANDEX_TOKEN")
+    if not token:
+        st.error("Нет токена Яндекс.Диска!")
+        return []
+
+    headers = {'Authorization': f'OAuth {token}'}
+    api_url = 'https://cloud-api.yandex.net/v1/disk/resources'
+    params = {'path': folder_path, 'limit': 100} # Берем до 100 файлов
     
-    total_rev = current_df['Выручка с НДС'].sum()
-    total_cost = current_df['Себестоимость'].sum()
+    response = requests.get(api_url, headers=headers, params=params)
+    if response.status_code != 200:
+        st.error(f"Ошибка доступа: {response.status_code}")
+        return []
+        
+    items = response.json().get('_embedded', {}).get('items', [])
     
-    for date in dates:
-        # Добавляем случайный шум к данным, чтобы имитировать колебания продаж
-        noise = np.random.normal(1, 0.15) # +- 15% колебаний
-        history.append({
-            'Дата': date,
-            'Выручка': total_rev * noise,
-            'Косты': total_cost * noise,
-            'Прибыль': (total_rev - total_cost) * noise
-        })
-    return pd.DataFrame(history)
+    data_frames = []
+    progress_bar = st.progress(0)
+    
+    # Фильтруем только файлы xlsx/csv
+    files = [i for i in items if i['type'] == 'file' and (i['name'].endswith('.xlsx') or i['name'].endswith('.csv'))]
+    
+    for idx, item in enumerate(files):
+        download_url = item['file']
+        file_resp = requests.get(download_url, headers=headers)
+        file_bytes = BytesIO(file_resp.content)
+        
+        df = process_single_file(file_bytes, item['name'])
+        if df is not None:
+            data_frames.append(df)
+        
+        progress_bar.progress((idx + 1) / len(files))
+        
+    progress_bar.empty()
+    return data_frames
+
+# --- БОКОВАЯ ПАНЕЛЬ ---
+st.sidebar.header("Источник данных")
+data_source = st.sidebar.radio("Режим:", ["Ручная загрузка (Архив)", "Яндекс.Диск (Авто)"])
+
+all_data = []
+
+if data_source == "Ручная загрузка (Архив)":
+    # Разрешаем грузить МНОГО файлов сразу
+    uploaded_files = st.sidebar.file_uploader("Выберите ВСЕ отчеты за месяц", type=['csv', 'xlsx'], accept_multiple_files=True)
+    if uploaded_files:
+        for file in uploaded_files:
+            df = process_single_file(file, file.name)
+            if df is not None:
+                all_data.append(df)
+
+elif data_source == "Яндекс.Диск (Авто)":
+    yandex_folder = st.sidebar.text_input("Папка на Диске:", value="/Отчеты_Ресторан")
+    if st.sidebar.button("Сканировать папку"):
+        with st.spinner('Скачиваем и обрабатываем отчеты...'):
+            all_data = load_all_from_yandex(yandex_folder)
 
 # --- ОСНОВНАЯ ЛОГИКА ---
-if uploaded_file is not None:
-    # 1. Загружаем текущий день
-    df_day = load_data(uploaded_file)
+if all_data:
+    # 1. Объединяем всё в одну таблицу
+    df_full = pd.concat(all_data, ignore_index=True)
+    df_full = df_full.sort_values(by='Дата_Отчета')
     
-    # 2. Генерируем историю (или загружаем из БД в будущем)
-    df_history = generate_history(df_day)
+    # 2. Агрегируем данные по дням (Сумма выручки за каждый день)
+    daily_stats = df_full.groupby('Дата_Отчета')[['Выручка с НДС', 'Себестоимость']].sum().reset_index()
+    daily_stats['FoodCost_Percent'] = daily_stats['Себестоимость'] / daily_stats['Выручка с НДС'] * 100
     
-    # --- KPI МЕТРИКИ (ВЕРХНЯЯ ПАНЕЛЬ) ---
-    st.subheader("Сводка за сегодня")
+    # Берем последний доступный день как "Сегодня"
+    last_date = daily_stats['Дата_Отчета'].max()
+    df_today = df_full[df_full['Дата_Отчета'] == last_date]
+    
+    # --- СВОДКА (METRICS) ---
+    st.subheader(f"Сводка на {last_date.strftime('%d.%m.%Y')}")
     
     col1, col2, col3, col4 = st.columns(4)
     
-    curr_rev = df_day['Выручка с НДС'].sum()
-    curr_cost = df_day['Себестоимость'].sum()
-    curr_fc = (curr_cost / curr_rev * 100) if curr_rev > 0 else 0
+    # Данные за "сегодня"
+    curr_rev = daily_stats[daily_stats['Дата_Отчета'] == last_date]['Выручка с НДС'].values[0]
+    curr_cost = daily_stats[daily_stats['Дата_Отчета'] == last_date]['Себестоимость'].values[0]
     
-    # Сравнение со "вчера" (берем из истории)
-    yesterday_rev = df_history.iloc[-2]['Выручка']
-    delta_rev = ((curr_rev - yesterday_rev) / yesterday_rev) * 100
-    
-    col1.metric("Выручка", f"{curr_rev:,.0f} ₽", f"{delta_rev:.1f}%")
-    col2.metric("Косты (Food Cost)", f"{curr_cost:,.0f} ₽", f"{(curr_cost/yesterday_rev - 1)*100:.1f}%", delta_color="inverse")
-    col3.metric("Фуд-кост %", f"{curr_fc:.1f}%", "-0.5%") # Пример дельты
-    col4.metric("Позиций в стопе", "3", "Low stock")
+    # Данные за "предыдущий загруженный день"
+    if len(daily_stats) > 1:
+        prev_date = daily_stats.iloc[-2]['Дата_Отчета']
+        prev_rev = daily_stats.iloc[-2]['Выручка с НДС']
+        delta_rev = ((curr_rev - prev_rev) / prev_rev) * 100
+        delta_label = f"{delta_rev:.1f}% (к {prev_date.strftime('%d.%m')})"
+    else:
+        delta_label = "Нет данных"
 
-    # --- ТАБЫ С АНАЛИТИКОЙ ---
-    tab1, tab2, tab3 = st.tabs(["📈 Динамика и Прогноз", "🍔 Анализ меню (C/C)", "📋 Детальная таблица"])
+    col1.metric("Выручка", f"{curr_rev:,.0f} ₽", delta_label)
+    col2.metric("Себестоимость", f"{curr_cost:,.0f} ₽", "")
+    col3.metric("Загружено дней", f"{len(daily_stats)}", "История")
+    
+    # --- ГРАФИКИ ---
+    tab1, tab2 = st.tabs(["📈 Общая динамика", "🍔 Детальный анализ"])
     
     with tab1:
-        st.subheader("Тренд выручки и Прогноз (ML)")
-        
-        # Простая модель прогноза (Линейная регрессия + шум для демо)
-        future_dates = pd.date_range(start=datetime.today() + timedelta(days=1), periods=2)
-        avg_growth = df_history['Выручка'].pct_change().mean()
-        last_val = df_history.iloc[-1]['Выручка']
-        
-        forecast = [last_val * (1 + avg_growth), last_val * (1 + avg_growth)**2]
-        
-        # График
+        # График Выручки (Реальный)
         fig = go.Figure()
-        
-        # Факт
-        fig.add_trace(go.Scatter(x=df_history['Дата'], y=df_history['Выручка'], 
-                                 mode='lines+markers', name='Факт', line=dict(color='blue')))
-        
-        # Прогноз
-        fig.add_trace(go.Scatter(x=future_dates, y=forecast, 
-                                 mode='lines+markers', name='Прогноз AI', 
-                                 line=dict(color='green', dash='dash')))
-        
+        fig.add_trace(go.Scatter(x=daily_stats['Дата_Отчета'], y=daily_stats['Выручка с НДС'], 
+                                 mode='lines+markers', name='Выручка', line=dict(color='green', width=3)))
+        fig.add_trace(go.Scatter(x=daily_stats['Дата_Отчета'], y=daily_stats['Себестоимость'], 
+                                 mode='lines', name='Косты', line=dict(color='red', dash='dot')))
         st.plotly_chart(fig, use_container_width=True)
         
-        st.info(f"🤖 **Прогноз AI:** Завтра ожидаем выручку ~{forecast[0]:,.0f} ₽. " 
-                f"Тренд: {'Рост' if forecast[0] > curr_rev else 'Спад'}.")
+        st.write("### Таблица по дням")
+        st.dataframe(daily_stats.style.format({'Выручка с НДС': "{:,.0f}", 'Себестоимость': "{:,.0f}", 'FoodCost_Percent': "{:.1f}%"}))
 
     with tab2:
-        st.subheader("Контроль себестоимости (Top изменений)")
-        
-        # Топ позиций по выручке (ABC анализ)
-        top_items = df_day.sort_values(by='Выручка с НДС', ascending=False).head(10)
-        
-        # График маржинальности
-        fig_bar = px.bar(top_items, x=df_day.columns[0], y='Выручка с НДС', 
-                         color='Фудкост', 
-                         title="Топ-10 блюд по выручке (Цвет = Фудкост %)",
-                         color_continuous_scale='RdYlGn_r') # Зеленый = низкий кост, Красный = высокий
-        st.plotly_chart(fig_bar, use_container_width=True)
-        
-        st.write("🔴 **Внимание! Высокая себестоимость (Кост > 35%):**")
-        
-        # --- ИСПРАВЛЕННЫЙ БЛОК ---
-        if 'Фудкост' in df_day.columns:
-            high_cost = df_day[df_day['Фудкост'] > 35][['Склады', 'Себестоимость', 'Выручка с НДС', 'Фудкост']]
-            
-            # Применяем форматирование только к числам
-            st.dataframe(high_cost.style.format({
-                'Себестоимость': "{:.1f}", 
-                'Выручка с НДС': "{:.1f}", 
-                'Фудкост': "{:.1f}"
-            }), use_container_width=True)
-        else:
-            st.warning("Колонка 'Фудкост' не найдена в файле.")
-
-    with tab3:
-        st.dataframe(df_day)
+        st.write(f"### Топ позиций за {last_date.strftime('%d.%m')}")
+        top_items = df_today.sort_values(by='Выручка с НДС', ascending=False).head(10)
+        st.dataframe(top_items[['Склады', 'Количество', 'Выручка с НДС', 'Фудкост']].style.format({'Выручка с НДС': "{:.1f}"}))
 
 else:
-    st.info("👈 Пожалуйста, загрузите файл с отчетом в меню слева, чтобы начать анализ.")
-    st.write("Поддерживаемый формат: Выгрузка из iiko/r_keeper (CSV/XLSX)")
+    st.info("👈 Загрузите файлы слева. Можно выбрать сразу 10-20 файлов при ручной загрузке, или указать папку Яндекс.Диска.")
