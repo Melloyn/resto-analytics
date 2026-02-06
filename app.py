@@ -155,7 +155,7 @@ elif source_mode == "Яндекс.Диск":
 if st.session_state.df_full is not None:
     df_full = st.session_state.df_full
     
-    # Используем динамическое имя колонки (на всякий случай, хотя мы переименовали в Блюдо)
+    # Имя колонки
     item_col_name = 'Блюдо' 
     
     dates_list = sorted(df_full['Дата_Отчета'].unique(), reverse=True)
@@ -246,4 +246,62 @@ if st.session_state.df_full is not None:
         # 1. ЗОНА РИСКА (>25%)
         with st.expander("⚠️ **ЗОНА РИСКА: Фуд-кост выше 25%**", expanded=False):
             high_cost_df = df_day[df_day['Фудкост'] > 25].sort_values(by='Фудкост', ascending=False)
-            if not high_cost_
+            if not high_cost_df.empty:
+                display_df = high_cost_df[[item_col_name, 'Себестоимость', 'Выручка с НДС', 'Фудкост']]
+                st.dataframe(display_df.style.format({'Себестоимость': "{:.1f}", 'Выручка с НДС': "{:.1f}", 'Фудкост': "{:.1f}%"}).background_gradient(subset=['Фудкост'], cmap='Reds', vmin=25, vmax=50), use_container_width=True)
+            else:
+                st.success("Нет позиций с костом выше 25%.")
+
+        # 2. ИЗМЕНЕНИЕ ЦЕН (ДЕНЬ КО ДНЮ)
+        if prev_date:
+            st.write(f"### 📉 Изменение цен закупки (к {prev_date.strftime('%d.%m')})")
+            
+            # Данные за сегодня и вчера
+            df_prev = df_full[df_full['Дата_Отчета'] == prev_date]
+            
+            # Агрегируем по блюдам
+            today_prices = df_day.groupby('Блюдо')['Unit_Cost'].mean()
+            prev_prices = df_prev.groupby('Блюдо')['Unit_Cost'].mean()
+            
+            # Объединяем
+            price_comp = pd.concat([today_prices, prev_prices], axis=1, keys=['Today', 'Prev']).dropna()
+            
+            # Считаем разницу
+            price_comp['Diff_Rub'] = price_comp['Today'] - price_comp['Prev']
+            price_comp['Diff_Pct'] = (price_comp['Diff_Rub'] / price_comp['Prev']) * 100
+            
+            # Фильтр изменений (>1%)
+            changes_day = price_comp[(abs(price_comp['Diff_Rub']) > 1) & (abs(price_comp['Diff_Pct']) > 1)].sort_values('Diff_Pct', ascending=False)
+            
+            if not changes_day.empty:
+                def color_day_change(val): return f'color: {"red" if val > 0 else "green"}'
+                
+                st.dataframe(changes_day.style.format({
+                    'Today': "{:.1f} ₽", 'Prev': "{:.1f} ₽", 
+                    'Diff_Rub': "{:+.1f} ₽", 'Diff_Pct': "{:+.1f}%"
+                }).applymap(color_day_change, subset=['Diff_Rub', 'Diff_Pct']), use_container_width=True)
+            else:
+                st.info("⚡️ Закупочные цены не изменились по сравнению с прошлым днем.")
+
+        tab1, tab2 = st.tabs(["📊 Меню", "🔮 Прогноз"])
+        with tab1:
+            st.plotly_chart(px.bar(df_day.sort_values('Выручка с НДС', ascending=False).head(10), 
+                            x=item_col_name, y='Выручка с НДС', 
+                            color='Фудкост', color_continuous_scale='RdYlGn_r'), use_container_width=True)
+        with tab2:
+            st.info("Прогноз на 2 дня вперед")
+            daily_grp = df_full.groupby('Дата_Отчета')['Выручка с НДС'].sum().reset_index()
+            last_3_avg = daily_grp['Выручка с НДС'].tail(3).mean()
+            if pd.isna(last_3_avg): last_3_avg = day_rev
+            future_days = [daily_grp['Дата_Отчета'].max() + timedelta(days=i) for i in range(1, 3)]
+            future_vals = [last_3_avg * 1.0, last_3_avg * 1.05]
+            
+            fig_trend = go.Figure()
+            fig_trend.add_trace(go.Scatter(x=daily_grp['Дата_Отчета'], y=daily_grp['Выручка с НДС'],
+                                           mode='lines+markers', name='Факт', line=dict(color='blue')))
+            fig_trend.add_trace(go.Scatter(x=future_days, y=future_vals,
+                                           mode='lines+markers', name='Прогноз', line=dict(color='green', dash='dash')))
+            st.plotly_chart(fig_trend, use_container_width=True)
+
+else:
+    st.info("👈 Нажмите 'Скачать' или загрузите файлы.")
