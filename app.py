@@ -67,7 +67,7 @@ def process_single_file(file_content, filename=""):
         df.columns = df.columns.str.strip()
         if 'Выручка с НДС' not in df.columns: return None
 
-        col_name = df.columns[0] # Исходное имя колонки (Склады/Номенклатура)
+        col_name = df.columns[0]
         df = df.dropna(subset=[col_name])
         df = df[~df[col_name].astype(str).str.contains("Итого", case=False)]
         
@@ -77,13 +77,12 @@ def process_single_file(file_content, filename=""):
                 df[col] = df[col].astype(str).str.replace(r'\s+', '', regex=True).str.replace(',', '.')
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
-        # === Считаем цену за единицу (Unit Cost) ===
+        # === Unit Cost ===
         df['Unit_Cost'] = df.apply(lambda x: (x['Себестоимость'] / x['Количество']) if x['Количество'] != 0 else 0, axis=1)
         
         df['Фудкост'] = df.apply(lambda x: (x['Себестоимость'] / x['Выручка с НДС'] * 100) if x['Выручка с НДС'] > 0 else 0, axis=1)
         df['Дата_Отчета'] = report_date
         
-        # Переименовываем в 'Блюдо' для удобства, но сохраняем логику
         df = df.rename(columns={col_name: 'Блюдо'})
         
         return df
@@ -129,7 +128,6 @@ def load_all_from_yandex(folder_path):
 st.sidebar.header("📂 Управление данными")
 source_mode = st.sidebar.radio("Источник:", ["Яндекс.Диск", "Ручная загрузка"])
 
-# Кнопка сброса памяти (для решения глюков)
 if st.sidebar.button("🗑 Сбросить кэш данных"):
     st.session_state.df_full = None
     st.rerun()
@@ -157,8 +155,8 @@ elif source_mode == "Яндекс.Диск":
 if st.session_state.df_full is not None:
     df_full = st.session_state.df_full
     
-    # Определяем имя колонки с названием блюда (динамически, чтобы не было ошибки)
-    item_col_name = df_full.columns[0] 
+    # Используем динамическое имя колонки (на всякий случай, хотя мы переименовали в Блюдо)
+    item_col_name = 'Блюдо' 
     
     dates_list = sorted(df_full['Дата_Отчета'].unique(), reverse=True)
     date_str_list = [d.strftime('%d.%m.%Y') for d in dates_list]
@@ -183,7 +181,7 @@ if st.session_state.df_full is not None:
         m2.metric("Себестоимость", f"{total_cost:,.0f} ₽")
         m3.metric("Фуд-кост %", f"{avg_fc:.1f}%")
         
-        tab_main, tab_price_change = st.tabs(["📊 Топ продаж", "📉 Изменение цен (Unit Cost)"])
+        tab_main, tab_price_change = st.tabs(["📊 Топ продаж", "📉 Изменение цен (Начало vs Конец)"])
         
         with tab_main:
             df_items = df_full.groupby(item_col_name)[['Выручка с НДС', 'Себестоимость']].sum().reset_index()
@@ -192,11 +190,8 @@ if st.session_state.df_full is not None:
             st.plotly_chart(px.bar(top_items, x=item_col_name, y='Выручка с НДС', 
                             color='Фудкост', color_continuous_scale='RdYlGn_r', title="Топ продаж за всё время"), use_container_width=True)
         
-        # === ВКЛАДКА: АНАЛИЗ ИЗМЕНЕНИЯ ЦЕН ===
         with tab_price_change:
-            st.write("Сравнение цены закупки (Unit Cost) в первый и последний день продаж.")
-            
-            # Используем item_col_name вместо жесткого 'Блюдо'
+            st.write("Сравнение цены закупки (Unit Cost) в **первый** и **последний** день продаж за весь период.")
             price_history = df_full.groupby([item_col_name, 'Дата_Отчета'])['Unit_Cost'].mean().reset_index()
             unique_items = price_history[item_col_name].unique()
             price_analysis = []
@@ -206,39 +201,21 @@ if st.session_state.df_full is not None:
                 if len(item_data) > 1:
                     first_price = item_data.iloc[0]['Unit_Cost']
                     last_price = item_data.iloc[-1]['Unit_Cost']
-                    
                     if first_price > 1: 
                         diff_pct = ((last_price - first_price) / first_price) * 100
                         diff_abs = last_price - first_price
-                        
                         if abs(diff_pct) > 1:
-                            price_analysis.append({
-                                'Блюдо': item,
-                                'Старая цена': first_price,
-                                'Новая цена': last_price,
-                                'Рост (руб)': diff_abs,
-                                'Рост (%)': diff_pct
-                            })
+                            price_analysis.append({'Блюдо': item, 'Старая цена': first_price, 'Новая цена': last_price, 'Рост (руб)': diff_abs, 'Рост (%)': diff_pct})
             
             if price_analysis:
-                df_changes = pd.DataFrame(price_analysis)
-                df_changes = df_changes.sort_values('Рост (%)', ascending=False)
-                
-                def color_change(val):
-                    color = 'red' if val > 0 else 'green'
-                    return f'color: {color}'
-                
-                st.dataframe(df_changes.style.format({
-                    'Старая цена': "{:.1f} ₽",
-                    'Новая цена': "{:.1f} ₽",
-                    'Рост (руб)': "{:+.1f} ₽",
-                    'Рост (%)': "{:+.1f}%"
-                }).applymap(color_change, subset=['Рост (%)', 'Рост (руб)']), use_container_width=True, height=500)
+                df_changes = pd.DataFrame(price_analysis).sort_values('Рост (%)', ascending=False)
+                def color_change(val): return f'color: {"red" if val > 0 else "green"}'
+                st.dataframe(df_changes.style.format({'Старая цена': "{:.1f} ₽", 'Новая цена': "{:.1f} ₽", 'Рост (руб)': "{:+.1f} ₽", 'Рост (%)': "{:+.1f}%"}).applymap(color_change, subset=['Рост (%)', 'Рост (руб)']), use_container_width=True)
             else:
-                st.success("Цены закупки стабильны.")
+                st.success("Цены стабильны.")
 
     # ==========================
-    #      РЕЖИМ: ДЕНЬ
+    #      РЕЖИМ: ДЕНЬ (Сравнение с ВЧЕРА)
     # ==========================
     else:
         current_date = datetime.strptime(selected_option, '%d.%m.%Y')
@@ -247,11 +224,13 @@ if st.session_state.df_full is not None:
         day_rev = df_day['Выручка с НДС'].sum()
         day_cost = df_day['Себестоимость'].sum()
         
+        # Поиск предыдущего дня
+        prev_date = None
         delta_msg = "нет данных"
         try:
             curr_idx = date_str_list.index(selected_option)
             if curr_idx + 1 < len(dates_list):
-                prev_date = dates_list[curr_idx + 1]
+                prev_date = dates_list[curr_idx + 1] # Это дата предыдущего отчета
                 prev_rev = df_full[df_full['Дата_Отчета'] == prev_date]['Выручка с НДС'].sum()
                 if prev_rev > 0:
                     diff = ((day_rev - prev_rev) / prev_rev) * 100
@@ -264,39 +243,7 @@ if st.session_state.df_full is not None:
         m2.metric("Фуд-кост", f"{(day_cost/day_rev*100):.1f}%")
         m3.metric("Чеков", len(df_day))
 
-        # --- ЗОНА РИСКА (>25%) ---
-        st.write("---")
-        with st.expander("⚠️ **ЗОНА РИСКА: Фуд-кост выше 25%**", expanded=True):
+        # 1. ЗОНА РИСКА (>25%)
+        with st.expander("⚠️ **ЗОНА РИСКА: Фуд-кост выше 25%**", expanded=False):
             high_cost_df = df_day[df_day['Фудкост'] > 25].sort_values(by='Фудкост', ascending=False)
-            if not high_cost_df.empty:
-                # ВОТ ЗДЕСЬ БЫЛА ОШИБКА. Теперь мы берем имя колонки динамически
-                display_df = high_cost_df[[item_col_name, 'Себестоимость', 'Выручка с НДС', 'Фудкост']]
-                
-                st.dataframe(display_df.style.format({
-                    'Себестоимость': "{:.1f}", 'Выручка с НДС': "{:.1f}", 'Фудкост': "{:.1f}%"
-                }).background_gradient(subset=['Фудкост'], cmap='Reds', vmin=25, vmax=50), use_container_width=True)
-            else:
-                st.success("Нет позиций с костом выше 25%.")
-
-        tab1, tab2 = st.tabs(["📊 Меню", "🔮 Прогноз"])
-        with tab1:
-            st.plotly_chart(px.bar(df_day.sort_values('Выручка с НДС', ascending=False).head(10), 
-                            x=item_col_name, y='Выручка с НДС', 
-                            color='Фудкост', color_continuous_scale='RdYlGn_r'), use_container_width=True)
-        with tab2:
-            st.info("Прогноз на 2 дня вперед")
-            daily_grp = df_full.groupby('Дата_Отчета')['Выручка с НДС'].sum().reset_index()
-            last_3_avg = daily_grp['Выручка с НДС'].tail(3).mean()
-            if pd.isna(last_3_avg): last_3_avg = day_rev
-            future_days = [daily_grp['Дата_Отчета'].max() + timedelta(days=i) for i in range(1, 3)]
-            future_vals = [last_3_avg * 1.0, last_3_avg * 1.05]
-            
-            fig_trend = go.Figure()
-            fig_trend.add_trace(go.Scatter(x=daily_grp['Дата_Отчета'], y=daily_grp['Выручка с НДС'],
-                                           mode='lines+markers', name='Факт', line=dict(color='blue')))
-            fig_trend.add_trace(go.Scatter(x=future_days, y=future_vals,
-                                           mode='lines+markers', name='Прогноз', line=dict(color='green', dash='dash')))
-            st.plotly_chart(fig_trend, use_container_width=True)
-
-else:
-    st.info("👈 Нажмите 'Скачать' или загрузите файлы.")
+            if not high_cost_
