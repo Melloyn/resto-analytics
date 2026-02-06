@@ -12,6 +12,16 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="RestoAnalytics: Место", layout="wide")
 st.title("📊 Аналитика: Бар МЕСТО")
 
+# --- СПИСОК ТЕХНИЧЕСКИХ СТРОК (НЕ ПРОДУКТЫ) ---
+# Эти строки мы убираем из анализа блюд, чтобы не было дублей
+IGNORE_NAMES = [
+    "Бар Место", 
+    "Бар Место Бургерная", 
+    "Итого", 
+    "Номенклатура", 
+    "Склады"
+]
+
 # --- ИНИЦИАЛИЗАЦИЯ ПАМЯТИ ---
 if 'df_full' not in st.session_state:
     st.session_state.df_full = None
@@ -67,8 +77,13 @@ def process_single_file(file_content, filename=""):
         df.columns = df.columns.str.strip()
         if 'Выручка с НДС' not in df.columns: return None
 
-        col_name = df.columns[0]
+        col_name = df.columns[0] # Обычно это "Склады" или "Номенклатура"
         df = df.dropna(subset=[col_name])
+        
+        # === ГЛАВНЫЙ ФИЛЬТР: Убираем папки складов и мусор ===
+        # Оставляем только те строки, которых НЕТ в списке запрещенных
+        df = df[~df[col_name].astype(str).str.strip().isin(IGNORE_NAMES)]
+        # Дополнительно убираем строки, где есть слово "Итого"
         df = df[~df[col_name].astype(str).str.contains("Итого", case=False)]
         
         cols_to_num = ['Количество', 'Себестоимость', 'Выручка с НДС']
@@ -77,12 +92,13 @@ def process_single_file(file_content, filename=""):
                 df[col] = df[col].astype(str).str.replace(r'\s+', '', regex=True).str.replace(',', '.')
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
-        # === Unit Cost ===
+        # Unit Cost (Цена за единицу)
         df['Unit_Cost'] = df.apply(lambda x: (x['Себестоимость'] / x['Количество']) if x['Количество'] != 0 else 0, axis=1)
         
+        # Food Cost %
         df['Фудкост'] = df.apply(lambda x: (x['Себестоимость'] / x['Выручка с НДС'] * 100) if x['Выручка с НДС'] > 0 else 0, axis=1)
-        df['Дата_Отчета'] = report_date
         
+        df['Дата_Отчета'] = report_date
         df = df.rename(columns={col_name: 'Блюдо'})
         
         return df
@@ -154,8 +170,6 @@ elif source_mode == "Яндекс.Диск":
 # --- АНАЛИТИКА ---
 if st.session_state.df_full is not None:
     df_full = st.session_state.df_full
-    
-    # Имя колонки
     item_col_name = 'Блюдо' 
     
     dates_list = sorted(df_full['Дата_Отчета'].unique(), reverse=True)
@@ -166,12 +180,11 @@ if st.session_state.df_full is not None:
     col_sel1, col_sel2 = st.columns([1, 4])
     selected_option = col_sel1.selectbox("📅 Выберите период:", date_options)
     
-    # ==========================
-    #      РЕЖИМ: ИТОГИ
-    # ==========================
+    # === ИТОГИ ===
     if "ИТОГИ" in selected_option:
         st.subheader(f"📈 Сводка за {len(dates_list)} дн.")
         
+        # Считаем сумму ПО ЧЕСТНОМУ (сумма строк товаров)
         total_rev = df_full['Выручка с НДС'].sum()
         total_cost = df_full['Себестоимость'].sum()
         avg_fc = (total_cost / total_rev * 100) if total_rev > 0 else 0
@@ -188,10 +201,10 @@ if st.session_state.df_full is not None:
             df_items['Фудкост'] = df_items['Себестоимость'] / df_items['Выручка с НДС'] * 100
             top_items = df_items.sort_values('Выручка с НДС', ascending=False).head(10)
             st.plotly_chart(px.bar(top_items, x=item_col_name, y='Выручка с НДС', 
-                            color='Фудкост', color_continuous_scale='RdYlGn_r', title="Топ продаж за всё время"), use_container_width=True)
+                            color='Фудкост', color_continuous_scale='RdYlGn_r', title="Топ продаж (Без учета папок складов)"), use_container_width=True)
         
         with tab_price_change:
-            st.write("Сравнение цены закупки (Unit Cost) в **первый** и **последний** день продаж за весь период.")
+            st.write("Сравнение Unit Cost (Закупка) за весь период.")
             price_history = df_full.groupby([item_col_name, 'Дата_Отчета'])['Unit_Cost'].mean().reset_index()
             unique_items = price_history[item_col_name].unique()
             price_analysis = []
@@ -214,9 +227,7 @@ if st.session_state.df_full is not None:
             else:
                 st.success("Цены стабильны.")
 
-    # ==========================
-    #      РЕЖИМ: ДЕНЬ (Сравнение с ВЧЕРА)
-    # ==========================
+    # === ДЕНЬ ===
     else:
         current_date = datetime.strptime(selected_option, '%d.%m.%Y')
         df_day = df_full[df_full['Дата_Отчета'] == current_date]
@@ -224,13 +235,12 @@ if st.session_state.df_full is not None:
         day_rev = df_day['Выручка с НДС'].sum()
         day_cost = df_day['Себестоимость'].sum()
         
-        # Поиск предыдущего дня
         prev_date = None
         delta_msg = "нет данных"
         try:
             curr_idx = date_str_list.index(selected_option)
             if curr_idx + 1 < len(dates_list):
-                prev_date = dates_list[curr_idx + 1] # Это дата предыдущего отчета
+                prev_date = dates_list[curr_idx + 1]
                 prev_rev = df_full[df_full['Дата_Отчета'] == prev_date]['Выручка с НДС'].sum()
                 if prev_rev > 0:
                     diff = ((day_rev - prev_rev) / prev_rev) * 100
@@ -241,9 +251,8 @@ if st.session_state.df_full is not None:
         m1, m2, m3 = st.columns(3)
         m1.metric("Выручка", f"{day_rev:,.0f} ₽", delta_msg)
         m2.metric("Фуд-кост", f"{(day_cost/day_rev*100):.1f}%")
-        m3.metric("Чеков", len(df_day))
+        m3.metric("Чеков/Строк", len(df_day))
 
-        # 1. ЗОНА РИСКА (>25%)
         with st.expander("⚠️ **ЗОНА РИСКА: Фуд-кост выше 25%**", expanded=False):
             high_cost_df = df_day[df_day['Фудкост'] > 25].sort_values(by='Фудкост', ascending=False)
             if not high_cost_df.empty:
@@ -252,36 +261,27 @@ if st.session_state.df_full is not None:
             else:
                 st.success("Нет позиций с костом выше 25%.")
 
-        # 2. ИЗМЕНЕНИЕ ЦЕН (ДЕНЬ КО ДНЮ)
         if prev_date:
             st.write(f"### 📉 Изменение цен закупки (к {prev_date.strftime('%d.%m')})")
-            
-            # Данные за сегодня и вчера
             df_prev = df_full[df_full['Дата_Отчета'] == prev_date]
             
-            # Агрегируем по блюдам
             today_prices = df_day.groupby('Блюдо')['Unit_Cost'].mean()
             prev_prices = df_prev.groupby('Блюдо')['Unit_Cost'].mean()
             
-            # Объединяем
             price_comp = pd.concat([today_prices, prev_prices], axis=1, keys=['Today', 'Prev']).dropna()
-            
-            # Считаем разницу
             price_comp['Diff_Rub'] = price_comp['Today'] - price_comp['Prev']
             price_comp['Diff_Pct'] = (price_comp['Diff_Rub'] / price_comp['Prev']) * 100
             
-            # Фильтр изменений (>1%)
             changes_day = price_comp[(abs(price_comp['Diff_Rub']) > 1) & (abs(price_comp['Diff_Pct']) > 1)].sort_values('Diff_Pct', ascending=False)
             
             if not changes_day.empty:
                 def color_day_change(val): return f'color: {"red" if val > 0 else "green"}'
-                
                 st.dataframe(changes_day.style.format({
                     'Today': "{:.1f} ₽", 'Prev': "{:.1f} ₽", 
                     'Diff_Rub': "{:+.1f} ₽", 'Diff_Pct': "{:+.1f}%"
                 }).applymap(color_day_change, subset=['Diff_Rub', 'Diff_Pct']), use_container_width=True)
             else:
-                st.info("⚡️ Закупочные цены не изменились по сравнению с прошлым днем.")
+                st.info("Цены не менялись.")
 
         tab1, tab2 = st.tabs(["📊 Меню", "🔮 Прогноз"])
         with tab1:
