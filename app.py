@@ -12,6 +12,10 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="RestoAnalytics: Место", layout="wide", initial_sidebar_state="expanded")
 st.title("📊 Аналитика: Бар МЕСТО")
 
+# --- ИНИЦИАЛИЗАЦИЯ ПАМЯТИ (ВЕРНУЛ ЭТОТ БЛОК) ---
+if 'df_full' not in st.session_state:
+    st.session_state.df_full = None
+
 # --- СПИСОК ИСКЛЮЧЕНИЙ ---
 IGNORE_NAMES = [
     "Бар Место", "Бар Место Бургерная", "Итого", "Номенклатура", "Склады", 
@@ -258,7 +262,7 @@ if st.session_state.df_full is not None:
                             'Новая цена': "{:.1f} ₽", 
                             'Рост %': "{:.1f} %"
                         })
-                        .background_gradient(subset=['Рост %'], cmap='Greens_r'), # Greens_r: чем меньше (отрицательнее) число, тем темнее зеленый
+                        .background_gradient(subset=['Рост %'], cmap='Greens_r'), 
                         use_container_width=True
                     )
                 else:
