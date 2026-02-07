@@ -13,7 +13,6 @@ st.set_page_config(page_title="RestoAnalytics: Место", layout="wide")
 st.title("📊 Аналитика: Бар МЕСТО")
 
 # --- СПИСОК ТЕХНИЧЕСКИХ СТРОК (НЕ ПРОДУКТЫ) ---
-# Эти строки мы убираем из анализа блюд, чтобы не было дублей
 IGNORE_NAMES = [
     "Бар Место", 
     "Бар Место Бургерная", 
@@ -48,6 +47,7 @@ def parse_russian_date(text):
 
 def process_single_file(file_content, filename=""):
     try:
+        # Чтение заголовка для даты
         if isinstance(file_content, BytesIO): file_content.seek(0)
         try:
             df_raw = pd.read_csv(file_content, header=None, nrows=10, sep=None, engine='python')
@@ -58,15 +58,27 @@ def process_single_file(file_content, filename=""):
         header_text = " ".join(df_raw.iloc[0:10, 0].astype(str).tolist())
         report_date = parse_russian_date(header_text)
         
+        # Если дата не найдена в файле, ищем в имени файла
         if not report_date:
-            for rus, eng in [('feb', 'февраля'), ('jan', 'января'), ('mar', 'марта')]:
-                if rus in filename.lower():
+            # Расширенный список месяцев для поиска в имени файла
+            month_map = {
+                'jan': 'января', 'feb': 'февраля', 'mar': 'марта', 'apr': 'апреля',
+                'may': 'мая', 'jun': 'июня', 'jul': 'июля', 'aug': 'августа',
+                'sep': 'сентября', 'oct': 'октября', 'nov': 'ноября', 'dec': 'декабря'
+            }
+            
+            for eng, rus in month_map.items():
+                if eng in filename.lower():
                      d_match = re.search(r'(\d{1,2})', filename)
                      if d_match:
-                         report_date = datetime(2026, RUS_MONTHS[eng], int(d_match.group(1)))
+                         # ИСПРАВЛЕНИЕ: Берем текущий год, а не хардкод 2026
+                         current_year = datetime.now().year
+                         report_date = datetime(current_year, RUS_MONTHS[rus], int(d_match.group(1)))
                          break
+        
         if not report_date: report_date = datetime.now()
 
+        # Чтение основных данных
         if isinstance(file_content, BytesIO): file_content.seek(0)
         try:
             df = pd.read_csv(file_content, header=5, sep=None, engine='python')
@@ -80,10 +92,8 @@ def process_single_file(file_content, filename=""):
         col_name = df.columns[0] # Обычно это "Склады" или "Номенклатура"
         df = df.dropna(subset=[col_name])
         
-        # === ГЛАВНЫЙ ФИЛЬТР: Убираем папки складов и мусор ===
-        # Оставляем только те строки, которых НЕТ в списке запрещенных
+        # === ФИЛЬТРАЦИЯ ===
         df = df[~df[col_name].astype(str).str.strip().isin(IGNORE_NAMES)]
-        # Дополнительно убираем строки, где есть слово "Итого"
         df = df[~df[col_name].astype(str).str.contains("Итого", case=False)]
         
         cols_to_num = ['Количество', 'Себестоимость', 'Выручка с НДС']
@@ -92,11 +102,9 @@ def process_single_file(file_content, filename=""):
                 df[col] = df[col].astype(str).str.replace(r'\s+', '', regex=True).str.replace(',', '.')
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
-        # Unit Cost (Цена за единицу)
-        df['Unit_Cost'] = df.apply(lambda x: (x['Себестоимость'] / x['Количество']) if x['Количество'] != 0 else 0, axis=1)
-        
-        # Food Cost %
-        df['Фудкост'] = df.apply(lambda x: (x['Себестоимость'] / x['Выручка с НДС'] * 100) if x['Выручка с НДС'] > 0 else 0, axis=1)
+        # ОПТИМИЗАЦИЯ: Векторные вычисления (быстрее чем apply)
+        df['Unit_Cost'] = np.where(df['Количество'] != 0, df['Себестоимость'] / df['Количество'], 0)
+        df['Фудкост'] = np.where(df['Выручка с НДС'] > 0, (df['Себестоимость'] / df['Выручка с НДС'] * 100), 0)
         
         df['Дата_Отчета'] = report_date
         df = df.rename(columns={col_name: 'Блюдо'})
@@ -105,39 +113,42 @@ def process_single_file(file_content, filename=""):
     except Exception:
         return None
 
+# --- ЗАГРУЗКА С ЯНДЕКСА (С КЭШИРОВАНИЕМ) ---
+# ttl=3600: кэш живет 1 час. show_spinner: показывает крутилку при первой загрузке.
+@st.cache_data(ttl=3600, show_spinner="Скачиваем и обрабатываем данные с Яндекс.Диска...")
 def load_all_from_yandex(folder_path):
     token = st.secrets.get("YANDEX_TOKEN")
     if not token:
-        st.error("⚠️ Нет YANDEX_TOKEN в Secrets!")
-        return []
+        return None # Ошибка обработается во внешнем коде
     
     headers = {'Authorization': f'OAuth {token}'}
     api_url = 'https://cloud-api.yandex.net/v1/disk/resources'
-    params = {'path': folder_path, 'limit': 100}
+    # ИСПРАВЛЕНИЕ: Лимит увеличен до 2000 файлов
+    params = {'path': folder_path, 'limit': 2000}
     
     try:
         response = requests.get(api_url, headers=headers, params=params)
         if response.status_code != 200:
-            st.error(f"Ошибка Яндекс.Диска: {response.status_code}")
             return []
             
         items = response.json().get('_embedded', {}).get('items', [])
         files = [i for i in items if i['type'] == 'file']
         
         data_frames = []
-        progress_bar = st.progress(0)
         
-        for idx, item in enumerate(files):
-            file_resp = requests.get(item['file'], headers=headers)
-            df = process_single_file(BytesIO(file_resp.content), filename=item['name'])
-            if df is not None:
-                data_frames.append(df)
-            progress_bar.progress((idx + 1) / len(files))
+        # Загружаем файлы
+        for item in files:
+            try:
+                file_resp = requests.get(item['file'], headers=headers)
+                # Передаем filename для определения даты
+                df = process_single_file(BytesIO(file_resp.content), filename=item['name'])
+                if df is not None:
+                    data_frames.append(df)
+            except Exception:
+                continue
             
-        progress_bar.empty()
         return data_frames
-    except Exception as e:
-        st.error(f"Ошибка: {e}")
+    except Exception:
         return []
 
 # --- ИНТЕРФЕЙС ЗАГРУЗКИ ---
@@ -145,6 +156,7 @@ st.sidebar.header("📂 Управление данными")
 source_mode = st.sidebar.radio("Источник:", ["Яндекс.Диск", "Ручная загрузка"])
 
 if st.sidebar.button("🗑 Сбросить кэш данных"):
+    st.cache_data.clear() # Чистим кэш Streamlit
     st.session_state.df_full = None
     st.rerun()
 
@@ -160,12 +172,19 @@ if source_mode == "Ручная загрузка":
 
 elif source_mode == "Яндекс.Диск":
     yandex_path = st.sidebar.text_input("Папка:", "Отчеты_Ресторан")
-    if st.sidebar.button("🔄 Скачать и Запомнить"):
-        with st.spinner("Загрузка с Яндекса..."):
+    
+    if st.sidebar.button("🔄 Скачать данные"):
+        if not st.secrets.get("YANDEX_TOKEN"):
+             st.error("⚠️ Нет YANDEX_TOKEN в Secrets!")
+        else:
+            # Функция теперь закэширована и быстрая при повторном вызове
             temp_data = load_all_from_yandex(yandex_path)
+            
             if temp_data:
                 st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
-                st.success(f"Загружено файлов: {len(temp_data)}")
+                st.success(f"Успешно! Обработано файлов: {len(temp_data)}")
+            else:
+                st.warning("Файлов не найдено или произошла ошибка при загрузке.")
 
 # --- АНАЛИТИКА ---
 if st.session_state.df_full is not None:
@@ -184,7 +203,6 @@ if st.session_state.df_full is not None:
     if "ИТОГИ" in selected_option:
         st.subheader(f"📈 Сводка за {len(dates_list)} дн.")
         
-        # Считаем сумму ПО ЧЕСТНОМУ (сумма строк товаров)
         total_rev = df_full['Выручка с НДС'].sum()
         total_cost = df_full['Себестоимость'].sum()
         avg_fc = (total_cost / total_rev * 100) if total_rev > 0 else 0
@@ -198,7 +216,7 @@ if st.session_state.df_full is not None:
         
         with tab_main:
             df_items = df_full.groupby(item_col_name)[['Выручка с НДС', 'Себестоимость']].sum().reset_index()
-            df_items['Фудкост'] = df_items['Себестоимость'] / df_items['Выручка с НДС'] * 100
+            df_items['Фудкост'] = np.where(df_items['Выручка с НДС'] > 0, df_items['Себестоимость'] / df_items['Выручка с НДС'] * 100, 0)
             top_items = df_items.sort_values('Выручка с НДС', ascending=False).head(10)
             st.plotly_chart(px.bar(top_items, x=item_col_name, y='Выручка с НДС', 
                             color='Фудкост', color_continuous_scale='RdYlGn_r', title="Топ продаж (Без учета папок складов)"), use_container_width=True)
@@ -214,6 +232,7 @@ if st.session_state.df_full is not None:
                 if len(item_data) > 1:
                     first_price = item_data.iloc[0]['Unit_Cost']
                     last_price = item_data.iloc[-1]['Unit_Cost']
+                    
                     if first_price > 1: 
                         diff_pct = ((last_price - first_price) / first_price) * 100
                         diff_abs = last_price - first_price
@@ -250,7 +269,7 @@ if st.session_state.df_full is not None:
         st.subheader(f"Отчет за {current_date.strftime('%d.%m')}")
         m1, m2, m3 = st.columns(3)
         m1.metric("Выручка", f"{day_rev:,.0f} ₽", delta_msg)
-        m2.metric("Фуд-кост", f"{(day_cost/day_rev*100):.1f}%")
+        m2.metric("Фуд-кост", f"{(day_cost/day_rev*100) if day_rev > 0 else 0:.1f}%")
         m3.metric("Чеков/Строк", len(df_day))
 
         with st.expander("⚠️ **ЗОНА РИСКА: Фуд-кост выше 25%**", expanded=False):
@@ -298,10 +317,10 @@ if st.session_state.df_full is not None:
             
             fig_trend = go.Figure()
             fig_trend.add_trace(go.Scatter(x=daily_grp['Дата_Отчета'], y=daily_grp['Выручка с НДС'],
-                                           mode='lines+markers', name='Факт', line=dict(color='blue')))
+                                         mode='lines+markers', name='Факт', line=dict(color='blue')))
             fig_trend.add_trace(go.Scatter(x=future_days, y=future_vals,
-                                           mode='lines+markers', name='Прогноз', line=dict(color='green', dash='dash')))
+                                         mode='lines+markers', name='Прогноз', line=dict(color='green', dash='dash')))
             st.plotly_chart(fig_trend, use_container_width=True)
 
 else:
-    st.info("👈 Нажмите 'Скачать' или загрузите файлы.")
+    st.info("👈 Нажмите 'Скачать данные' (Яндекс) или загрузите файлы вручную.")
