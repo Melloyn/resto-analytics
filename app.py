@@ -205,17 +205,17 @@ if st.session_state.df_full is not None:
     # --- 1. ИНФЛЯЦИЯ (С РАСЧЕТОМ ПОТЕРЬ ДЕНЕГ) ---
     with tab1:
         st.subheader(f"🔥 Инфляционный Трекер (по состоянию на {target_date.strftime('%d.%m.%Y')})")
-        st.caption("Сколько мы потеряли (или сэкономили) из-за изменения цены закупки за этот период.")
+        st.caption("Расчет потерь и экономии на основе изменения закупочных цен.")
         
-        # Данные от начала до выбранной даты
         df_inflation_scope = df_full[df_full['Дата_Отчета'] <= target_date]
         
-        # Агрегация по датам для истории цен
         price_history = df_inflation_scope.groupby(['Блюдо', 'Дата_Отчета'])['Unit_Cost'].mean().reset_index()
         unique_items = price_history['Блюдо'].unique()
         inflation_data = []
 
-        total_losses = 0
+        # Накопительные переменные
+        total_gross_loss = 0 # Чисто потери
+        total_gross_save = 0 # Чисто экономия
 
         for item in unique_items:
             p_data = price_history[price_history['Блюдо'] == item].sort_values('Дата_Отчета')
@@ -223,18 +223,19 @@ if st.session_state.df_full is not None:
                 first_price = p_data.iloc[0]['Unit_Cost']
                 last_price = p_data.iloc[-1]['Unit_Cost']
                 
-                # Сколько штук продали за выбранный период просмотра
-                # Если "Все время" - то все продажи. Если "День" - то продажи этого дня.
-                # Логика: влияние изменения цены на ТЕКУЩИЙ объем продаж.
+                # Объем продаж за выбранный период (чтобы оценить масштаб бедствия)
                 qty_sold = df_view[df_view['Блюдо'] == item]['Количество'].sum()
 
                 if first_price > 5 and qty_sold > 0: 
                     diff_abs = last_price - first_price
                     diff_pct = (diff_abs / first_price) * 100
                     
-                    # Финансовый эффект: (Разница в цене) * (Кол-во проданного)
                     financial_impact = diff_abs * qty_sold
-                    total_losses += financial_impact
+                    
+                    if financial_impact > 0:
+                        total_gross_loss += financial_impact
+                    else:
+                        total_gross_save += abs(financial_impact)
 
                     if abs(diff_pct) > 1:
                         inflation_data.append({
@@ -245,30 +246,34 @@ if st.session_state.df_full is not None:
                             'Эффект (₽)': financial_impact
                         })
         
-        # ГЛАВНАЯ ЦИФРА ПОТЕРЬ/ЭКОНОМИИ
-        if total_losses > 0:
-             st.error(f"💸 Упущенная прибыль из-за роста цен: {total_losses:,.0f} ₽")
-        elif total_losses < 0:
-             st.success(f"💰 Экономия благодаря снижению цен: {abs(total_losses):,.0f} ₽")
-        else:
-             st.info("Влияние изменения цен на прибыль: 0 ₽")
+        # === БЛОК МЕТРИК ИНФЛЯЦИИ ===
+        net_result = total_gross_loss - total_gross_save
+        
+        inf1, inf2, inf3 = st.columns(3)
+        inf1.metric("🔴 Потери (Инфляция)", f"-{total_gross_loss:,.0f} ₽", help="Сумма денег, потерянная из-за роста цен закупки.")
+        inf2.metric("🟢 Экономия (Скидки)", f"+{total_gross_save:,.0f} ₽", help="Сумма денег, сэкономленная на снижении цен закупки.")
+        inf3.metric("🏁 Чистый Итог", f"-{net_result:,.0f} ₽" if net_result > 0 else f"+{abs(net_result):,.0f} ₽", 
+                   delta_color="inverse", 
+                   help="Реальный финансовый результат (Потери - Экономия).")
+        
+        st.write("---")
 
         if inflation_data:
             df_inf = pd.DataFrame(inflation_data)
             
-            df_up = df_inf[df_inf['Рост %'] > 0].sort_values('Эффект (₽)', ascending=False).head(20) # Сортировка по сумме потерь
-            df_down = df_inf[df_inf['Рост %'] < 0].sort_values('Эффект (₽)', ascending=True).head(20)
+            df_up = df_inf[df_inf['Рост %'] > 0].sort_values('Эффект (₽)', ascending=False).head(30) # ТОП-30
+            df_down = df_inf[df_inf['Рост %'] < 0].sort_values('Эффект (₽)', ascending=True).head(30) # ТОП-30
 
             col_up, col_down = st.columns(2)
 
             with col_up:
-                st.write("### 📉 Топ потерь (Цена выросла)")
+                st.write("### 📉 Топ-30 Потерь (Цена выросла)")
                 if not df_up.empty:
                     st.dataframe(
                         df_up[['Товар', 'Рост %', 'Эффект (₽)']].style
                         .format({
                             'Рост %': "+{:.1f} %",
-                            'Эффект (₽)': "-{:,.0f} ₽" # Минус для наглядности (потеря)
+                            'Эффект (₽)': "-{:,.0f} ₽" 
                         })
                         .background_gradient(subset=['Эффект (₽)'], cmap='Reds'),
                         use_container_width=True
@@ -277,13 +282,13 @@ if st.session_state.df_full is not None:
                     st.success("Нет потерь.")
 
             with col_down:
-                st.write("### 📈 Топ экономии (Цена упала)")
+                st.write("### 📈 Топ-30 Экономии (Цена упала)")
                 if not df_down.empty:
                     st.dataframe(
                         df_down[['Товар', 'Рост %', 'Эффект (₽)']].style
                         .format({
                             'Рост %': "{:.1f} %",
-                            'Эффект (₽)': "+{:,.0f} ₽" # Плюс (экономия)
+                            'Эффект (₽)': "+{:,.0f} ₽" 
                         })
                         .background_gradient(subset=['Эффект (₽)'], cmap='Greens_r'),
                         use_container_width=True
