@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="RestoAnalytics: Место", layout="wide", initial_sidebar_state="expanded")
 st.title("📊 Аналитика: Бар МЕСТО")
 
-# --- ИНИЦИАЛИЗАЦИЯ ПАМЯТИ (ВЕРНУЛ ЭТОТ БЛОК) ---
+# --- ИНИЦИАЛИЗАЦИЯ ПАМЯТИ ---
 if 'df_full' not in st.session_state:
     st.session_state.df_full = None
 
@@ -181,11 +181,13 @@ if st.session_state.df_full is not None:
     col_sel1, col_sel2 = st.columns([1, 4])
     selected_option = col_sel1.selectbox("Период:", date_options)
     
+    # ЛОГИКА ОПРЕДЕЛЕНИЯ ДАТЫ И ФИЛЬТРАЦИИ ДЛЯ РАЗНЫХ ВКЛАДОК
     if "ВСЕ ВРЕМЯ" in selected_option:
-        df_view = df_full
+        target_date = df_full['Дата_Отчета'].max() # Последняя доступная дата
+        df_view = df_full # Для KPI и Меню берем всё
     else:
-        current_date = datetime.strptime(selected_option, '%d.%m.%Y')
-        df_view = df_full[df_full['Дата_Отчета'] == current_date]
+        target_date = datetime.strptime(selected_option, '%d.%m.%Y')
+        df_view = df_full[df_full['Дата_Отчета'] == target_date] # Для KPI и Меню берем только ЭТОТ день
 
     # KPI
     total_rev = df_view['Выручка с НДС'].sum()
@@ -200,20 +202,24 @@ if st.session_state.df_full is not None:
 
     tab1, tab2, tab3, tab4 = st.tabs(["🔥 Инфляция", "🍰 Меню и Косты", "⭐ Матрица (ABC)", "🗓 Дни недели"])
 
-    # --- 1. ИНФЛЯЦИЯ (ДВЕ ТАБЛИЦЫ) ---
+    # --- 1. ИНФЛЯЦИЯ (ИСПРАВЛЕНА ЛОГИКА ФИЛЬТРАЦИИ) ---
     with tab1:
-        st.subheader("🔥 Инфляционный Трекер (Изменение Unit Cost)")
-        st.caption("Сравнение первой и последней цены закупки за выбранный период.")
+        st.subheader(f"🔥 Инфляционный Трекер (по состоянию на {target_date.strftime('%d.%m.%Y')})")
+        st.caption("Сравнение: Цены в НАЧАЛЕ истории vs Цены на ВЫБРАННУЮ дату.")
         
-        price_history = df_full.groupby(['Блюдо', 'Дата_Отчета'])['Unit_Cost'].mean().reset_index()
+        # БЕРЕМ ДАННЫЕ ОТ НАЧАЛА ВРЕМЕН ДО ВЫБРАННОЙ ДАТЫ (включительно)
+        # Это позволяет видеть инфляцию, даже если выбран один день
+        df_inflation_scope = df_full[df_full['Дата_Отчета'] <= target_date]
+        
+        price_history = df_inflation_scope.groupby(['Блюдо', 'Дата_Отчета'])['Unit_Cost'].mean().reset_index()
         unique_items = price_history['Блюдо'].unique()
         inflation_data = []
 
         for item in unique_items:
             p_data = price_history[price_history['Блюдо'] == item].sort_values('Дата_Отчета')
             if len(p_data) > 1:
-                first_price = p_data.iloc[0]['Unit_Cost']
-                last_price = p_data.iloc[-1]['Unit_Cost']
+                first_price = p_data.iloc[0]['Unit_Cost'] # Самая первая цена в базе
+                last_price = p_data.iloc[-1]['Unit_Cost'] # Цена на момент выбранной даты
                 
                 if first_price > 5: 
                     diff_abs = last_price - first_price
@@ -230,7 +236,6 @@ if st.session_state.df_full is not None:
         if inflation_data:
             df_inf = pd.DataFrame(inflation_data)
             
-            # Разделяем на РОСТ (Up) и ПАДЕНИЕ (Down)
             df_up = df_inf[df_inf['Рост %'] > 0].sort_values('Рост %', ascending=False).head(20)
             df_down = df_inf[df_inf['Рост %'] < 0].sort_values('Рост %', ascending=True).head(20)
 
@@ -262,14 +267,14 @@ if st.session_state.df_full is not None:
                             'Новая цена': "{:.1f} ₽", 
                             'Рост %': "{:.1f} %"
                         })
-                        .background_gradient(subset=['Рост %'], cmap='Greens_r'), 
+                        .background_gradient(subset=['Рост %'], cmap='Greens_r'),
                         use_container_width=True
                     )
                 else:
                     st.info("Нет позиций со снижением цены.")
 
         else:
-            st.success("Цены стабильны.")
+            st.success("Цены стабильны (или мало данных для сравнения).")
 
     # --- 2. МЕНЮ И КОСТЫ ---
     with tab2:
