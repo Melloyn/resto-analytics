@@ -196,10 +196,10 @@ if st.session_state.df_full is not None:
 
     tab1, tab2, tab3, tab4 = st.tabs(["🔥 Инфляция", "🍰 Меню и Косты", "⭐ Матрица (ABC)", "🗓 Дни недели"])
 
-    # --- 1. ИНФЛЯЦИЯ (С ГРАДИЕНТОМ) ---
+    # --- 1. ИНФЛЯЦИЯ ---
     with tab1:
         st.subheader("🔥 Инфляционный Трекер")
-        st.info("Топ изменений закупочной цены (По модулю). Градиент показывает направление.")
+        st.caption("Анализ изменения закупочных цен. Красное — подорожание, Зеленое — скидки/удешевление.")
         
         price_history = df_full.groupby(['Блюдо', 'Дата_Отчета'])['Unit_Cost'].mean().reset_index()
         unique_items = price_history['Блюдо'].unique()
@@ -211,7 +211,7 @@ if st.session_state.df_full is not None:
                 first_price = p_data.iloc[0]['Unit_Cost']
                 last_price = p_data.iloc[-1]['Unit_Cost']
                 
-                if first_price > 5: # Фильтр копеечных позиций
+                if first_price > 5: 
                     diff_abs = last_price - first_price
                     diff_pct = (diff_abs / first_price) * 100
                     
@@ -220,22 +220,13 @@ if st.session_state.df_full is not None:
                             'Товар': item,
                             'Старая цена': first_price,
                             'Новая цена': last_price,
-                            'Рост %': diff_pct # Для сортировки и цвета
+                            'Рост %': diff_pct 
                         })
         
         if inflation_data:
             df_inf = pd.DataFrame(inflation_data)
-            # Сортируем по МОДУЛЮ (самые сильные изменения вверх), но сохраняем знак для цвета
             df_inf['Abs_Change'] = df_inf['Рост %'].abs()
             df_inf = df_inf.sort_values('Abs_Change', ascending=False).head(30)
-            
-            # Применяем градиент
-            # RdYlGn_r: Красный (Red) -> Желтый -> Зеленый (Green) _r (reversed)
-            # Нам нужно: Высокий Рост (+) -> Красный, Падение (-) -> Зеленый
-            # Стандартный RdYlGn: Низкое (Red), Высокое (Green).
-            # Нам нужно наоборот: Низкое (минус, скидка) -> Green, Высокое (плюс, рост) -> Red.
-            # Значит RdYlGn (без реверса): Min (Green) ... Max (Red) - нет, RdYlGn это Red->Green.
-            # Используем 'RdYlGn_r': Min (Green) ... Max (Red).
             
             st.dataframe(
                 df_inf[['Товар', 'Старая цена', 'Новая цена', 'Рост %']].style
@@ -250,18 +241,19 @@ if st.session_state.df_full is not None:
         else:
             st.success("Цены стабильны.")
 
-    # --- 2. МЕНЮ И КОСТЫ (С ГРАДИЕНТОМ) ---
+    # --- 2. МЕНЮ И КОСТЫ ---
     with tab2:
         c1, c2 = st.columns([1, 1])
         with c1:
             st.subheader("Структура выручки")
             df_cat = df_view.groupby('Категория')['Выручка с НДС'].sum().reset_index()
             fig_pie = px.pie(df_cat, values='Выручка с НДС', names='Категория', hole=0.4)
+            # Добавил формат валюты в подсказку
+            fig_pie.update_traces(hovertemplate='%{label}: %{value:,.0f} ₽ (%{percent})')
             st.plotly_chart(fig_pie, use_container_width=True)
         
         with c2:
             st.subheader("📊 Детальный анализ Фуд-коста")
-            # Группировка
             df_menu = df_view.groupby('Блюдо').agg({
                 'Выручка с НДС': 'sum', 
                 'Себестоимость': 'sum',
@@ -271,7 +263,6 @@ if st.session_state.df_full is not None:
             df_menu['Фудкост %'] = np.where(df_menu['Выручка с НДС']>0, df_menu['Себестоимость']/df_menu['Выручка с НДС']*100, 0)
             df_menu = df_menu.sort_values('Выручка с НДС', ascending=False).head(50)
             
-            # Таблица с градиентом Фудкоста (Белый -> Красный)
             st.dataframe(
                 df_menu[['Блюдо', 'Выручка с НДС', 'Фудкост %']].style
                 .format({'Выручка с НДС': "{:,.0f} ₽", 'Фудкост %': "{:.1f} %"})
@@ -280,9 +271,18 @@ if st.session_state.df_full is not None:
                 height=400
             )
 
-    # --- 3. ABC ---
+    # --- 3. ABC МАТРИЦА ---
     with tab3:
         st.subheader("⭐ Матрица Меню (ABC)")
+        
+        # --- ЛЕГЕНДА С ПОЯСНЕНИЯМИ ---
+        col_L1, col_L2, col_L3, col_L4 = st.columns(4)
+        col_L1.info("⭐ **Звезды**\n\nВысокая маржа, Популярные. \n**Стратегия:** Беречь и не менять!")
+        col_L2.warning("🐎 **Лошадки**\n\nНизкая маржа, Популярные. \n**Стратегия:** Чуть поднять цену.")
+        col_L3.success("❓ **Загадки**\n\nВысокая маржа, Мало продаются. \n**Стратегия:** Рекламировать, фото в меню.")
+        col_L4.error("🐶 **Собаки**\n\nНизкая маржа, Мало продаются. \n**Стратегия:** Убрать из меню.")
+        # -----------------------------
+
         abc_df = df_view.groupby('Блюдо').agg({'Количество': 'sum', 'Выручка с НДС': 'sum', 'Себестоимость': 'sum'}).reset_index()
         abc_df = abc_df[abc_df['Количество'] > 0]
         abc_df['Маржа'] = abc_df['Выручка с НДС'] - abc_df['Себестоимость']
@@ -298,10 +298,16 @@ if st.session_state.df_full is not None:
             return "🐶 Собака"
 
         abc_df['Класс'] = abc_df.apply(classify_abc, axis=1)
+        
         fig_abc = px.scatter(abc_df, x="Количество", y="Unit_Margin", color="Класс", hover_name="Блюдо", size="Выручка с НДС",
                              color_discrete_map={"⭐ Звезда": "gold", "🐎 Лошадка": "blue", "❓ Загадка": "green", "🐶 Собака": "red"}, log_x=True)
-        fig_abc.add_vline(x=avg_qty, line_dash="dash", line_color="gray")
-        fig_abc.add_hline(y=avg_margin, line_dash="dash", line_color="gray")
+        
+        # Настройка осей и подсказок с РУБЛЯМИ
+        fig_abc.update_traces(hovertemplate='<b>%{hovertext}</b><br>Продажи: %{x} шт<br>Маржа с блюда: %{y:.0f} ₽')
+        fig_abc.add_vline(x=avg_qty, line_dash="dash", line_color="gray", annotation_text="Ср. Поп.")
+        fig_abc.add_hline(y=avg_margin, line_dash="dash", line_color="gray", annotation_text="Ср. Маржа")
+        fig_abc.update_layout(yaxis_title="Маржа с 1 блюда (₽)", xaxis_title="Кол-во продаж (шт, логарифм. шкала)")
+        
         st.plotly_chart(fig_abc, use_container_width=True)
 
     # --- 4. ДНИ НЕДЕЛИ ---
@@ -311,9 +317,17 @@ if st.session_state.df_full is not None:
             df_full['ДеньНедели'] = df_full['Дата_Отчета'].dt.day_name()
             days_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
             days_rus = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"]
+            
             dow_stats = df_full.groupby(['Дата_Отчета', 'ДеньНедели'])['Выручка с НДС'].sum().reset_index().groupby('ДеньНедели')['Выручка с НДС'].mean().reindex(days_order).reset_index()
             dow_stats['ДеньРус'] = days_rus
-            st.plotly_chart(px.bar(dow_stats, x='ДеньРус', y='Выручка с НДС', text_auto='.0f', color='Выручка с НДС'), use_container_width=True)
+            
+            fig_dow = px.bar(dow_stats, x='ДеньРус', y='Выручка с НДС', color='Выручка с НДС')
+            
+            # Добавил отображение РУБЛЕЙ на столбиках
+            fig_dow.update_traces(texttemplate='%{y:,.0f} ₽', textposition='auto')
+            fig_dow.update_layout(yaxis_tickformat = ',.0f', yaxis_title="Средняя выручка (₽)")
+            
+            st.plotly_chart(fig_dow, use_container_width=True)
         else:
             st.warning("Мало данных.")
 else:
