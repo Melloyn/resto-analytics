@@ -27,12 +27,11 @@ IGNORE_NAMES = [
     "Тихие красные вина", "Крепленые вина", "Б/а напитки", "Коктейли по контракту"
 ]
 
-# --- УМНЫЙ КАТЕГОРИЗАТОР (V2.0 - С ПАМЯТЬЮ) ---
-def detect_category(name_input):
+# --- БАЗОВЫЙ КАТЕГОРИЗАТОР (АВТОПИЛОТ) ---
+def detect_category_fallback(name_input):
     name = str(name_input).strip().lower()
     
-    # 1. СЛОВАРЬ ИСКЛЮЧЕНИЙ (ИЗ ТВОЕГО ФАЙЛА)
-    # Это те позиции, которые раньше попадали в "Прочее" или определялись неправильно
+    # СЛОВАРЬ ИСКЛЮЧЕНИЙ (ВШИТЫЕ ПРАВИЛА)
     manual_dict = {
         'nevermind': '🍹 Коктейли',
         'фруктовый физ': '🍹 Коктейли',
@@ -118,17 +117,14 @@ def detect_category(name_input):
         'брум в асс. 40мл': '🥃 Крепкое',
         'красностоп, корвина 125мл': '🍷 Вино'
     }
-    
-    # Если нашли точное совпадение - возвращаем сразу
-    if name in manual_dict:
-        return manual_dict[name]
+    if name in manual_dict: return manual_dict[name]
 
-    # 2. АВТОПИЛОТ (ДЛЯ НОВИНОК)
-    beer_brands = ['пиво', 'beer', 'ale', 'ipa', 'lager', 'stout', 'сидр', 'cidre', 'heineken', 'guinness', 'эль', 'стаут', 'лагер', 'corona', 'spaten', 'bud', 'klosterbrau', 'blanche', 'filter', 'dark', 'нефильтр', 'светлое', 'темное', 'местное']
-    wine_brands = ['вино', 'wine', 'red', 'white', 'rose', 'шардоне', 'мерло', 'рислинг', 'пино', 'совиньон', 'кьянти', 'брют', 'просекко', 'cava', 'chardonnay', 'merlot', 'pinot', 'sauvignon', 'chianti', 'prosecco', 'shiraz', 'абрау', 'шато', 'гевюрц', 'цинандали']
-    strong_brands = ['водка', 'vodka', 'виски', 'whiskey', 'whisky', 'ром', 'rum', 'джин', 'gin', 'коньяк', 'cognac', 'текила', 'настойка', 'егерь', 'jager', 'jameson', 'jack', 'daniels', 'jim beam', 'macallan', 'absolut', 'finlandia', 'beluga', 'olmeca', 'martini', 'baileys', 'sambuca', 'absinthe', 'чача', 'нк ']
-    cocktail_brands = ['коктейль', 'long', 'shot', 'апероль', 'мохито', 'физ', 'сауэр', 'негрони', 'джин-тоник', 'шприц', 'b-52', 'daiquiri', 'margarita', 'cosmopolitan', 'сэт', 'лонг']
-    non_alc_brands = ['вода', 'water', 'сока', 'juice', 'кофе', 'чай', 'tea', 'lemonade', 'лимонад', 'cola', 'tonic', 'тоник', 'коле', 'эспрессо', 'капучино', 'bonaqua', 'rich', 'schweppes', 'латте', 'americano', 'red bull', 'смузи', 'милк', 'фреш', 'матча', 'какао']
+    # ПОИСК ПО КЛЮЧЕВЫМ СЛОВАМ
+    beer_brands = ['пиво', 'beer', 'ale', 'ipa', 'lager', 'stout', 'сидр', 'cidre', 'heineken', 'guinness', 'эль', 'стаут', 'лагер', 'corona', 'spaten', 'bud', 'klosterbrau', 'blanche', 'filter', 'dark', 'нефильтр', 'светлое', 'темное', 'местное', 'крушовице', 'мейзон']
+    wine_brands = ['вино', 'wine', 'red', 'white', 'rose', 'шардоне', 'мерло', 'рислинг', 'пино', 'совиньон', 'кьянти', 'брют', 'просекко', 'cava', 'chardonnay', 'merlot', 'pinot', 'sauvignon', 'chianti', 'prosecco', 'shiraz', 'абрау', 'шато', 'гевюрц', 'цинандали', 'рача', 'ламбруско', 'балаклава', 'телави']
+    strong_brands = ['водка', 'vodka', 'виски', 'whiskey', 'whisky', 'ром', 'rum', 'джин', 'gin', 'коньяк', 'cognac', 'текила', 'настойка', 'егерь', 'jager', 'jameson', 'jack', 'daniels', 'jim beam', 'macallan', 'absolut', 'finlandia', 'beluga', 'olmeca', 'martini', 'baileys', 'sambuca', 'absinthe', 'чача', 'нк ', 'хаски', 'белуга', 'блэк рэм', 'камю', 'арарат']
+    cocktail_brands = ['коктейль', 'long', 'shot', 'апероль', 'мохито', 'физ', 'сауэр', 'негрони', 'джин-тоник', 'шприц', 'b-52', 'daiquiri', 'margarita', 'cosmopolitan', 'сэт', 'лонг', 'ящерица']
+    non_alc_brands = ['вода', 'water', 'сока', 'juice', 'кофе', 'чай', 'tea', 'lemonade', 'лимонад', 'cola', 'tonic', 'тоник', 'коле', 'эспрессо', 'капучино', 'bonaqua', 'rich', 'schweppes', 'латте', 'americano', 'red bull', 'смузи', 'милк', 'фреш', 'матча', 'какао', 'напиток']
     food_keywords = ['бургер', 'суп', 'салат', 'фри', 'сыр', 'мясо', 'стейк', 'хлеб', 'соус', 'картофель', 'гренки', 'крылья', 'креветки', 'паста', 'сухарики', 'сэндвич', 'добавка', 'десерт', 'мороженое', 'чизкейк', 'начос', 'кесадилья']
     extra_keywords = ['сироп', 'доп.', 'сливки', 'молоко', 'лимон 20', 'лайм 20', 'мята 20', 'апельсин 20']
 
@@ -211,8 +207,8 @@ def process_single_file(file_content, filename=""):
         df['Дата_Отчета'] = report_date
         df = df.rename(columns={col_name: 'Блюдо'})
         
-        # ПРИМЕНЯЕМ КАТЕГОРИЗАТОР
-        df['Категория'] = df['Блюдо'].apply(detect_category)
+        # По умолчанию - Автопилот
+        df['Категория'] = df['Блюдо'].apply(detect_category_fallback)
 
         return df
     except Exception:
@@ -241,16 +237,16 @@ def load_all_from_yandex(folder_path):
     except: return []
 
 # --- ИНТЕРФЕЙС ЗАГРУЗКИ ---
-st.sidebar.header("📂 Управление")
-source_mode = st.sidebar.radio("Источник:", ["Яндекс.Диск", "Ручная загрузка"])
+st.sidebar.header("📂 1. Источник данных")
+source_mode = st.sidebar.radio("Откуда берем отчеты?", ["Яндекс.Диск", "Ручная загрузка"])
 
-if st.sidebar.button("🗑 Сбросить кэш"):
+if st.sidebar.button("🗑 Сбросить все данные"):
     st.cache_data.clear()
     st.session_state.df_full = None
     st.rerun()
 
 if source_mode == "Ручная загрузка":
-    uploaded_files = st.sidebar.file_uploader("Файлы отчетов", accept_multiple_files=True)
+    uploaded_files = st.sidebar.file_uploader("Загрузить отчеты (CSV/Excel)", accept_multiple_files=True)
     if uploaded_files:
         temp_data = []
         for f in uploaded_files:
@@ -259,8 +255,8 @@ if source_mode == "Ручная загрузка":
         if temp_data:
             st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
 elif source_mode == "Яндекс.Диск":
-    yandex_path = st.sidebar.text_input("Папка:", "Отчеты_Ресторан")
-    if st.sidebar.button("🔄 Скачать данные"):
+    yandex_path = st.sidebar.text_input("Папка на Диске:", "Отчеты_Ресторан")
+    if st.sidebar.button("🔄 Скачать отчеты"):
         if not st.secrets.get("YANDEX_TOKEN"):
              st.error("⚠️ Нет токена в Secrets!")
         else:
@@ -271,14 +267,64 @@ elif source_mode == "Яндекс.Диск":
             else:
                 st.warning("Файлов не найдено.")
 
+# --- 2. МЕНЕДЖЕР КАТЕГОРИЙ (НОВОЕ!) ---
+st.sidebar.write("---")
+st.sidebar.header("🗂️ Менеджер Категорий")
+
+# Кнопка скачивания полного списка
+if st.session_state.df_full is not None:
+    # Создаем полный список уникальных блюд с текущими категориями
+    unique_items = st.session_state.df_full[['Блюдо', 'Категория']].drop_duplicates(subset=['Блюдо'])
+    
+    # Конвертируем в CSV для скачивания
+    csv_ref = unique_items.to_csv(index=False).encode('utf-8-sig')
+    
+    st.sidebar.download_button(
+        label="📥 Скачать список всех категорий",
+        data=csv_ref,
+        file_name="Справочник_Категорий.csv",
+        mime="text/csv",
+        help="Скачай этот файл, отредактируй категории в Excel и загрузи обратно."
+    )
+
+# Загрузка исправленного файла
+category_file = st.sidebar.file_uploader("Загрузить исправленный справочник", type=['csv', 'xlsx'])
+
+if st.session_state.df_full is not None and category_file is not None:
+    try:
+        if category_file.name.endswith('.csv'):
+            # Пробуем разные разделители для надежности
+            try:
+                cat_df = pd.read_csv(category_file, sep=None, engine='python')
+            except:
+                cat_df = pd.read_csv(category_file)
+        else:
+            cat_df = pd.read_excel(category_file)
+        
+        # Ищем колонки
+        col_item = next((c for c in cat_df.columns if 'блюдо' in c.lower() or 'item' in c.lower()), None)
+        col_cat = next((c for c in cat_df.columns if 'категория' in c.lower() or 'category' in c.lower()), None)
+        
+        if col_item and col_cat:
+            mapping = dict(zip(cat_df[col_item], cat_df[col_cat]))
+            # ПРИМЕНЯЕМ МАППИНГ: Если блюдо есть в файле - берем категорию оттуда. Если нет - оставляем старую.
+            st.session_state.df_full['Категория'] = st.session_state.df_full['Блюдо'].map(mapping).fillna(st.session_state.df_full['Категория'])
+            st.sidebar.success(f"✅ Справочник применен! Обновлено {len(mapping)} правил.")
+        else:
+            st.sidebar.error("В файле должны быть колонки 'Блюдо' и 'Категория'.")
+            
+    except Exception as e:
+        st.sidebar.error(f"Ошибка чтения файла: {e}")
+
 # --- АНАЛИТИКА ---
 if st.session_state.df_full is not None:
     df_full = st.session_state.df_full
     
+    # Экспорт данных
     with st.sidebar:
         st.write("---")
         csv = df_full.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 Скачать (CSV)", csv, f"Analytics_{datetime.now().date()}.csv", "text/csv")
+        st.download_button("📥 Скачать базу (CSV)", csv, f"Analytics_{datetime.now().date()}.csv", "text/csv")
 
     dates_list = sorted(df_full['Дата_Отчета'].unique(), reverse=True)
     date_options = ["📅 ВСЕ ВРЕМЯ (Сводный)"] + [d.strftime('%d.%m.%Y') for d in dates_list]
@@ -326,60 +372,40 @@ if st.session_state.df_full is not None:
             if len(p_data) > 1:
                 first_price = p_data.iloc[0]['Unit_Cost']
                 last_price = p_data.iloc[-1]['Unit_Cost']
-                
                 qty_sold = df_view[df_view['Блюдо'] == item]['Количество'].sum()
 
                 if first_price > 5 and qty_sold > 0: 
                     diff_abs = last_price - first_price
                     diff_pct = (diff_abs / first_price) * 100
-                    
                     financial_impact = diff_abs * qty_sold
                     
-                    if financial_impact > 0:
-                        total_gross_loss += financial_impact
-                    else:
-                        total_gross_save += abs(financial_impact)
+                    if financial_impact > 0: total_gross_loss += financial_impact
+                    else: total_gross_save += abs(financial_impact)
 
                     if abs(diff_pct) > 1:
-                        inflation_data.append({
-                            'Товар': item,
-                            'Старая цена': first_price,
-                            'Новая цена': last_price,
-                            'Рост %': diff_pct,
-                            'Эффект (₽)': financial_impact
-                        })
+                        inflation_data.append({'Товар': item, 'Старая цена': first_price, 'Новая цена': last_price, 'Рост %': diff_pct, 'Эффект (₽)': financial_impact})
         
         net_result = total_gross_loss - total_gross_save
-        
         inf1, inf2, inf3 = st.columns(3)
-        inf1.metric("🔴 Потери (Инфляция)", f"-{total_gross_loss:,.0f} ₽", help="Сумма денег, потерянная из-за роста цен закупки.")
-        inf2.metric("🟢 Экономия (Скидки)", f"+{total_gross_save:,.0f} ₽", help="Сумма денег, сэкономленная на снижении цен закупки.")
-        inf3.metric("🏁 Чистый Итог", f"-{net_result:,.0f} ₽" if net_result > 0 else f"+{abs(net_result):,.0f} ₽", 
-                   delta_color="inverse")
+        inf1.metric("🔴 Потери (Инфляция)", f"-{total_gross_loss:,.0f} ₽")
+        inf2.metric("🟢 Экономия (Скидки)", f"+{total_gross_save:,.0f} ₽")
+        inf3.metric("🏁 Чистый Итог", f"-{net_result:,.0f} ₽" if net_result > 0 else f"+{abs(net_result):,.0f} ₽", delta_color="inverse")
         
         st.write("---")
 
         if inflation_data:
             df_inf = pd.DataFrame(inflation_data)
-            
-            df_up = df_inf[df_inf['Рост %'] > 0].sort_values('Эффект (₽)', ascending=False).head(30)
-            df_down = df_inf[df_inf['Рост %'] < 0].sort_values('Эффект (₽)', ascending=True).head(30)
-
             col_up, col_down = st.columns(2)
-
             with col_up:
                 st.write("### 📉 Топ-30 Потерь")
-                if not df_up.empty:
+                if not df_inf.empty:
+                    df_up = df_inf[df_inf['Рост %'] > 0].sort_values('Эффект (₽)', ascending=False).head(30)
                     st.dataframe(df_up[['Товар', 'Рост %', 'Эффект (₽)']].style.format({'Рост %': "+{:.1f} %", 'Эффект (₽)': "-{:,.0f} ₽"}).background_gradient(subset=['Эффект (₽)'], cmap='Reds'), use_container_width=True)
-                else:
-                    st.success("Нет потерь.")
-
             with col_down:
                 st.write("### 📈 Топ-30 Экономии")
-                if not df_down.empty:
+                if not df_inf.empty:
+                    df_down = df_inf[df_inf['Рост %'] < 0].sort_values('Эффект (₽)', ascending=True).head(30)
                     st.dataframe(df_down[['Товар', 'Рост %', 'Эффект (₽)']].style.format({'Рост %': "{:.1f} %", 'Эффект (₽)': "+{:,.0f} ₽"}).background_gradient(subset=['Эффект (₽)'], cmap='Greens_r'), use_container_width=True)
-                else:
-                    st.info("Нет экономии.")
         else:
             st.success("Цены стабильны.")
 
@@ -400,12 +426,11 @@ if st.session_state.df_full is not None:
             df_menu = df_menu.sort_values('Выручка с НДС', ascending=False).head(50)
             st.dataframe(df_menu[['Блюдо', 'Выручка с НДС', 'Фудкост %']].style.format({'Выручка с НДС': "{:,.0f} ₽", 'Фудкост %': "{:.1f} %"}).background_gradient(subset=['Фудкост %'], cmap='Reds', vmin=20, vmax=60), use_container_width=True, height=400)
 
-        # === ДЕТЕКТИВ ===
         st.write("---")
         st.subheader("🕵️‍♀️ Аудит категорий (Что попало в 'Прочее')")
         uncategorized = df_view[df_view['Категория'].str.contains('Прочее', case=False)]['Блюдо'].unique()
         if len(uncategorized) > 0:
-            st.warning(f"Есть {len(uncategorized)} нераспознанных блюд. Сообщи разработчику.")
+            st.warning(f"Есть {len(uncategorized)} нераспознанных блюд.")
             st.dataframe(pd.DataFrame(uncategorized, columns=['Нераспознанные блюда']), use_container_width=True)
         else:
             st.success("Все блюда распределены!")
@@ -458,19 +483,15 @@ if st.session_state.df_full is not None:
 
     # --- 5. ПЛАН ЗАКУПОК ---
     with tab5:
-        st.subheader("📦 Калькулятор Закупки (на основе статистики)")
-        st.info("Прогноз строится на средних продажах за последние 30 дней. Бюджет считается по последней цене закупки.")
-        
+        st.subheader("📦 Калькулятор Закупки")
         c_set1, c_set2 = st.columns(2)
-        days_to_buy = c_set1.slider("📅 На сколько дней закупаем?", min_value=1, max_value=14, value=3)
-        safety_stock = c_set2.slider("🛡 Страховой запас (%)", min_value=0, max_value=50, value=10)
+        days_to_buy = c_set1.slider("📅 Дней закупки", 1, 14, 3)
+        safety_stock = c_set2.slider("🛡 Запас (%)", 0, 50, 10)
         
         last_30_days = df_full['Дата_Отчета'].max() - timedelta(days=30)
         df_recent = df_full[df_full['Дата_Отчета'] >= last_30_days]
-        
         daily_sales = df_recent.groupby('Блюдо')['Количество'].sum().reset_index()
         daily_sales['Avg_Daily_Qty'] = daily_sales['Количество'] / 30
-        
         last_prices = df_full.sort_values('Дата_Отчета').groupby('Блюдо')['Unit_Cost'].last().reset_index()
         plan_df = pd.merge(daily_sales[['Блюдо', 'Avg_Daily_Qty']], last_prices, on='Блюдо')
         
@@ -478,10 +499,8 @@ if st.session_state.df_full is not None:
         plan_df['Budget'] = plan_df['Need_Qty'] * plan_df['Unit_Cost']
         plan_df = plan_df[plan_df['Need_Qty'] > 0.5].sort_values('Budget', ascending=False)
         
-        total_budget = plan_df['Budget'].sum()
-        st.metric(label=f"💰 Бюджет на {days_to_buy} дн.", value=f"{total_budget:,.0f} ₽")
-        
-        st.dataframe(plan_df[['Блюдо', 'Unit_Cost', 'Need_Qty', 'Budget']].style.format({'Unit_Cost': "{:.1f} ₽", 'Need_Qty': "{:.1f} ед.", 'Budget': "{:,.0f} ₽"}).background_gradient(subset=['Budget'], cmap='Greens'), use_container_width=True)
+        st.metric("💰 Бюджет", f"{plan_df['Budget'].sum():,.0f} ₽")
+        st.dataframe(plan_df[['Блюдо', 'Unit_Cost', 'Need_Qty', 'Budget']].style.format({'Unit_Cost': "{:.1f} ₽", 'Need_Qty': "{:.1f}", 'Budget': "{:,.0f} ₽"}).background_gradient(subset=['Budget'], cmap='Greens'), use_container_width=True)
 
 else:
     st.info("👈 Загрузите данные.")
