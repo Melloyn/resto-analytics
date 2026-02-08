@@ -203,6 +203,14 @@ def process_single_file(file_content, filename=""):
         df['Дата_Отчета'] = report_date
         df = df.rename(columns={col_name: 'Блюдо'})
         df['Категория'] = df['Блюдо'].apply(detect_category_granular)
+        
+        # --- ДОБАВЛЕНО: Чтение Поставщика, если он есть ---
+        if 'Поставщик' in df.columns:
+            df['Поставщик'] = df['Поставщик'].fillna('Не указан')
+        else:
+            df['Поставщик'] = 'Не указан'
+        # -------------------------------------------------
+
         return df
     except Exception:
         return None
@@ -315,7 +323,7 @@ if st.session_state.df_full is not None:
     kpi3.metric("💳 Маржа", f"{(total_rev - total_cost):,.0f} ₽")
     kpi4.metric("🧾 Позиций", len(df_view))
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔥 Инфляция и Потери", "🍰 Меню и Косты", "⭐ Матрица (ABC)", "🗓 Дни недели", "📦 План Закупок"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🔥 Инфляция", "📉 Динамика и Поставщики", "🍰 Меню и Косты", "⭐ Матрица (ABC)", "🗓 Дни недели", "📦 План Закупок"])
 
     # --- 1. ИНФЛЯЦИЯ ---
     with tab1:
@@ -367,8 +375,47 @@ if st.session_state.df_full is not None:
         else:
             st.success("Цены стабильны.")
 
-    # --- 2. МЕНЮ И КОСТЫ ---
+    # --- 2. ДИНАМИКА И ПОСТАВЩИКИ (НОВАЯ ВКЛАДКА) ---
     with tab2:
+        st.subheader("📉 История цен и Рейтинг Поставщиков")
+        
+        c_dyn1, c_dyn2 = st.columns([2, 1])
+        
+        with c_dyn1:
+            st.write("### 🔍 Как менялась цена закупки?")
+            # Список всех блюд
+            all_items = sorted(df_full['Блюдо'].unique())
+            selected_item = st.selectbox("Выберите товар/блюдо:", all_items)
+            
+            # Строим график для выбранного товара
+            item_data = df_full[df_full['Блюдо'] == selected_item].sort_values('Дата_Отчета')
+            
+            if not item_data.empty:
+                fig_trend = px.line(item_data, x='Дата_Отчета', y='Unit_Cost', markers=True, 
+                                    title=f"Динамика цены: {selected_item}",
+                                    labels={'Unit_Cost': 'Цена закупки (₽)', 'Дата_Отчета': 'Дата'})
+                st.plotly_chart(fig_trend, use_container_width=True)
+                
+                # Мини-таблица с историей
+                st.dataframe(item_data[['Дата_Отчета', 'Unit_Cost', 'Поставщик']].style.format({'Unit_Cost': '{:.2f} ₽', 'Дата_Отчета': '{:%d.%m.%Y}'}), use_container_width=True)
+            else:
+                st.warning("Нет данных по этому товару.")
+
+        with c_dyn2:
+            st.write("### 🏆 Топ Поставщиков (по объему)")
+            # Группируем по поставщику и считаем СУММУ себестоимости (объем закупок)
+            supplier_stats = df_view.groupby('Поставщик')['Себестоимость'].sum().reset_index()
+            supplier_stats = supplier_stats[supplier_stats['Поставщик'] != 'Не указан'].sort_values('Себестоимость', ascending=False).head(10)
+            
+            if not supplier_stats.empty:
+                fig_sup = px.bar(supplier_stats, x='Себестоимость', y='Поставщик', orientation='h', text_auto='.0s',
+                                 title="Кому мы платим больше всего?", color='Себестоимость')
+                st.plotly_chart(fig_sup, use_container_width=True)
+            else:
+                st.info("В загруженных файлах нет колонки 'Поставщик'.")
+
+    # --- 3. МЕНЮ И КОСТЫ ---
+    with tab3:
         view_mode = st.radio("Детализация категорий:", ["🔍 Укрупненно (Макро-группы)", "🔬 Детально (Микро-категории)"], horizontal=True)
         target_cat = 'Макро_Категория' if 'Макро' in view_mode else 'Категория'
 
@@ -388,17 +435,8 @@ if st.session_state.df_full is not None:
             df_menu = df_menu.rename(columns={target_cat: 'Категория'})
             st.dataframe(df_menu[['Блюдо', 'Категория', 'Выручка с НДС', 'Фудкост %']].style.format({'Выручка с НДС': "{:,.0f} ₽", 'Фудкост %': "{:.1f} %"}).background_gradient(subset=['Фудкост %'], cmap='Reds', vmin=20, vmax=60), use_container_width=True, height=400)
 
-        st.write("---")
-        st.subheader("🕵️‍♀️ Аудит категорий (Что попало в 'Прочее')")
-        uncategorized = df_view[df_view['Категория'].str.contains('Прочее', case=False)]['Блюдо'].unique()
-        if len(uncategorized) > 0:
-            st.warning(f"Есть {len(uncategorized)} нераспознанных блюд.")
-            st.dataframe(pd.DataFrame(uncategorized, columns=['Нераспознанные блюда']), use_container_width=True)
-        else:
-            st.success("Все блюда распределены!")
-
-    # --- 3. ABC МАТРИЦА ---
-    with tab3:
+    # --- 4. ABC МАТРИЦА ---
+    with tab4:
         st.subheader("⭐ Матрица Меню (ABC)")
         col_L1, col_L2, col_L3, col_L4 = st.columns(4)
         col_L1.info("⭐ **Звезды**\n\nВысокая маржа, Популярные.\n(Син)")
@@ -420,7 +458,6 @@ if st.session_state.df_full is not None:
             return "🐶 Собака"
 
         abc_df['Класс'] = abc_df.apply(classify_abc, axis=1)
-        # Исправленные цвета: Звезды=Синий (info), Лошадки=Золотой (warning), Загадки=Зеленый (success), Собаки=Красный (error)
         fig_abc = px.scatter(abc_df, x="Количество", y="Unit_Margin", color="Класс", hover_name="Блюдо", size="Выручка с НДС", 
                              color_discrete_map={"⭐ Звезда": "blue", "🐎 Лошадка": "gold", "❓ Загадка": "green", "🐶 Собака": "red"}, log_x=True)
         fig_abc.update_traces(hovertemplate='<b>%{hovertext}</b><br>Продажи: %{x} шт<br>Маржа с блюда: %{y:.0f} ₽')
@@ -428,8 +465,8 @@ if st.session_state.df_full is not None:
         fig_abc.add_hline(y=avg_margin, line_dash="dash", line_color="gray")
         st.plotly_chart(fig_abc, use_container_width=True)
 
-    # --- 4. ДНИ НЕДЕЛИ ---
-    with tab4:
+    # --- 5. ДНИ НЕДЕЛИ ---
+    with tab5:
         st.subheader("🗓 Дни недели")
         if len(dates_list) > 1:
             df_full['ДеньНедели'] = df_full['Дата_Отчета'].dt.day_name()
@@ -443,8 +480,8 @@ if st.session_state.df_full is not None:
         else:
             st.warning("Мало данных.")
 
-    # --- 5. ПЛАН ЗАКУПОК ---
-    with tab5:
+    # --- 6. ПЛАН ЗАКУПОК ---
+    with tab6:
         st.subheader("📦 Калькулятор Закупки")
         c_set1, c_set2 = st.columns(2)
         days_to_buy = c_set1.slider("📅 Дней закупки", 1, 14, 3)
