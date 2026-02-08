@@ -41,7 +41,7 @@ def get_macro_category(cat):
 def detect_category_granular(name_input):
     name = str(name_input).strip().lower()
     
-    # ЖЕСТКАЯ БАЗА (ИЗ ТВОЕГО ФАЙЛА)
+    # ЖЕСТКАЯ БАЗА
     manual_dict = {
         'banana tiki': '🍹 Коктейли', 'black hole': '🍹 Коктейли', 'clover club': '🍹 Коктейли', 
         'drunk bee': '🍹 Коктейли', 'milk punch бурбон-черная смородина': '🍹 Коктейли', 
@@ -204,12 +204,12 @@ def process_single_file(file_content, filename=""):
         df = df.rename(columns={col_name: 'Блюдо'})
         df['Категория'] = df['Блюдо'].apply(detect_category_granular)
         
-        # --- ДОБАВЛЕНО: Чтение Поставщика, если он есть ---
+        # --- БЕЗОПАСНОЕ ДОБАВЛЕНИЕ ПОСТАВЩИКА ---
         if 'Поставщик' in df.columns:
             df['Поставщик'] = df['Поставщик'].fillna('Не указан')
         else:
             df['Поставщик'] = 'Не указан'
-        # -------------------------------------------------
+        # ----------------------------------------
 
         return df
     except Exception:
@@ -290,6 +290,10 @@ if st.session_state.df_full is not None and category_file is not None:
 
 # --- АНАЛИТИКА ---
 if st.session_state.df_full is not None:
+    # ЛЕЧЕНИЕ ДАННЫХ В ПАМЯТИ (Если вдруг нет колонки)
+    if 'Поставщик' not in st.session_state.df_full.columns:
+        st.session_state.df_full['Поставщик'] = 'Не указан'
+
     df_full = st.session_state.df_full.copy()
     df_full['Макро_Категория'] = df_full['Категория'].apply(get_macro_category)
     
@@ -375,7 +379,7 @@ if st.session_state.df_full is not None:
         else:
             st.success("Цены стабильны.")
 
-    # --- 2. ДИНАМИКА И ПОСТАВЩИКИ (НОВАЯ ВКЛАДКА) ---
+    # --- 2. ДИНАМИКА И ПОСТАВЩИКИ ---
     with tab2:
         st.subheader("📉 История цен и Рейтинг Поставщиков")
         
@@ -383,11 +387,8 @@ if st.session_state.df_full is not None:
         
         with c_dyn1:
             st.write("### 🔍 Как менялась цена закупки?")
-            # Список всех блюд
             all_items = sorted(df_full['Блюдо'].unique())
             selected_item = st.selectbox("Выберите товар/блюдо:", all_items)
-            
-            # Строим график для выбранного товара
             item_data = df_full[df_full['Блюдо'] == selected_item].sort_values('Дата_Отчета')
             
             if not item_data.empty:
@@ -396,21 +397,27 @@ if st.session_state.df_full is not None:
                                     labels={'Unit_Cost': 'Цена закупки (₽)', 'Дата_Отчета': 'Дата'})
                 st.plotly_chart(fig_trend, use_container_width=True)
                 
-                # Мини-таблица с историей
-                st.dataframe(item_data[['Дата_Отчета', 'Unit_Cost', 'Поставщик']].style.format({'Unit_Cost': '{:.2f} ₽', 'Дата_Отчета': '{:%d.%m.%Y}'}), use_container_width=True)
+                # БЕЗОПАСНЫЙ ВЫВОД ТАБЛИЦЫ
+                cols_to_show = ['Дата_Отчета', 'Unit_Cost']
+                if 'Поставщик' in item_data.columns:
+                    cols_to_show.append('Поставщик')
+                
+                st.dataframe(item_data[cols_to_show].style.format({'Unit_Cost': '{:.2f} ₽', 'Дата_Отчета': '{:%d.%m.%Y}'}), use_container_width=True)
             else:
                 st.warning("Нет данных по этому товару.")
 
         with c_dyn2:
-            st.write("### 🏆 Топ Поставщиков (по объему)")
-            # Группируем по поставщику и считаем СУММУ себестоимости (объем закупок)
-            supplier_stats = df_view.groupby('Поставщик')['Себестоимость'].sum().reset_index()
-            supplier_stats = supplier_stats[supplier_stats['Поставщик'] != 'Не указан'].sort_values('Себестоимость', ascending=False).head(10)
-            
-            if not supplier_stats.empty:
-                fig_sup = px.bar(supplier_stats, x='Себестоимость', y='Поставщик', orientation='h', text_auto='.0s',
-                                 title="Кому мы платим больше всего?", color='Себестоимость')
-                st.plotly_chart(fig_sup, use_container_width=True)
+            st.write("### 🏆 Топ Поставщиков")
+            # Проверяем наличие колонки перед группировкой
+            if 'Поставщик' in df_view.columns:
+                supplier_stats = df_view.groupby('Поставщик')['Себестоимость'].sum().reset_index()
+                supplier_stats = supplier_stats[supplier_stats['Поставщик'] != 'Не указан'].sort_values('Себестоимость', ascending=False).head(10)
+                
+                if not supplier_stats.empty:
+                    fig_sup = px.bar(supplier_stats, x='Себестоимость', y='Поставщик', orientation='h', text_auto='.0s', color='Себестоимость')
+                    st.plotly_chart(fig_sup, use_container_width=True)
+                else:
+                    st.info("Данные по поставщикам не найдены.")
             else:
                 st.info("В загруженных файлах нет колонки 'Поставщик'.")
 
@@ -435,6 +442,15 @@ if st.session_state.df_full is not None:
             df_menu = df_menu.rename(columns={target_cat: 'Категория'})
             st.dataframe(df_menu[['Блюдо', 'Категория', 'Выручка с НДС', 'Фудкост %']].style.format({'Выручка с НДС': "{:,.0f} ₽", 'Фудкост %': "{:.1f} %"}).background_gradient(subset=['Фудкост %'], cmap='Reds', vmin=20, vmax=60), use_container_width=True, height=400)
 
+        st.write("---")
+        st.subheader("🕵️‍♀️ Аудит категорий (Что попало в 'Прочее')")
+        uncategorized = df_view[df_view['Категория'].str.contains('Прочее', case=False)]['Блюдо'].unique()
+        if len(uncategorized) > 0:
+            st.warning(f"Есть {len(uncategorized)} нераспознанных блюд.")
+            st.dataframe(pd.DataFrame(uncategorized, columns=['Нераспознанные блюда']), use_container_width=True)
+        else:
+            st.success("Все блюда распределены!")
+
     # --- 4. ABC МАТРИЦА ---
     with tab4:
         st.subheader("⭐ Матрица Меню (ABC)")
@@ -458,6 +474,7 @@ if st.session_state.df_full is not None:
             return "🐶 Собака"
 
         abc_df['Класс'] = abc_df.apply(classify_abc, axis=1)
+        # Исправленные цвета: Звезды=Синий, Лошадки=Золотой, Загадки=Зеленый, Собаки=Красный
         fig_abc = px.scatter(abc_df, x="Количество", y="Unit_Margin", color="Класс", hover_name="Блюдо", size="Выручка с НДС", 
                              color_discrete_map={"⭐ Звезда": "blue", "🐎 Лошадка": "gold", "❓ Загадка": "green", "🐶 Собака": "red"}, log_x=True)
         fig_abc.update_traces(hovertemplate='<b>%{hovertext}</b><br>Продажи: %{x} шт<br>Маржа с блюда: %{y:.0f} ₽')
