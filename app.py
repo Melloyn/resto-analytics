@@ -154,38 +154,62 @@ def parse_russian_date(text):
         return datetime.strptime(match_digit.group(0), '%d.%m.%Y')
     return None
 
+def detect_header_row(df_preview, required_column):
+    for idx in range(min(20, len(df_preview))):
+        row_values = df_preview.iloc[idx].astype(str).str.lower()
+        if row_values.str.contains(required_column.lower(), regex=False).any():
+            return idx
+    return None
+
 def process_single_file(file_content, filename=""):
+    warnings = []
     try:
-        if isinstance(file_content, BytesIO): file_content.seek(0)
+        if isinstance(file_content, BytesIO):
+            file_content.seek(0)
         try:
-            df_raw = pd.read_csv(file_content, header=None, nrows=10, sep=None, engine='python')
-        except:
-            if isinstance(file_content, BytesIO): file_content.seek(0)
-            df_raw = pd.read_excel(file_content, header=None, nrows=10)
+            df_raw = pd.read_csv(file_content, header=None, nrows=20, sep=None, engine='python')
+        except (ValueError, pd.errors.ParserError):
+            if isinstance(file_content, BytesIO):
+                file_content.seek(0)
+            df_raw = pd.read_excel(file_content, header=None, nrows=20)
 
         header_text = " ".join(df_raw.iloc[0:10, 0].astype(str).tolist())
         report_date = parse_russian_date(header_text)
-        
+
         if not report_date:
             month_map = {'jan': 'января', 'feb': 'февраля', 'mar': 'марта', 'apr': 'апреля', 'may': 'мая', 'jun': 'июня', 'jul': 'июля', 'aug': 'августа', 'sep': 'сентября', 'oct': 'октября', 'nov': 'ноября', 'dec': 'декабря'}
             for eng, rus in month_map.items():
                 if eng in filename.lower():
-                     d_match = re.search(r'(\d{1,2})', filename)
-                     if d_match:
-                         current_year = datetime.now().year
-                         report_date = datetime(current_year, RUS_MONTHS[rus], int(d_match.group(1)))
-                         break
-        if not report_date: report_date = datetime.now()
+                    d_match = re.search(r'(\d{1,2})', filename)
+                    if d_match:
+                        current_year = datetime.now().year
+                        report_date = datetime(current_year, RUS_MONTHS[rus], int(d_match.group(1)))
+                        break
+        if not report_date:
+            warnings.append(f"Не удалось определить дату отчета, используется текущая дата: {filename}")
+            report_date = datetime.now()
 
-        if isinstance(file_content, BytesIO): file_content.seek(0)
+        header_row = detect_header_row(df_raw, "Выручка с НДС")
+        if header_row is None:
+            warnings.append(f"Заголовок не найден, используется строка 6: {filename}")
+            header_row = 5
+
+        if isinstance(file_content, BytesIO):
+            file_content.seek(0)
         try:
-            df = pd.read_csv(file_content, header=5, sep=None, engine='python')
-        except:
-            if isinstance(file_content, BytesIO): file_content.seek(0)
-            df = pd.read_excel(file_content, header=5)
+            df = pd.read_csv(file_content, header=header_row, sep=None, engine='python')
+        except (ValueError, pd.errors.ParserError):
+            if isinstance(file_content, BytesIO):
+                file_content.seek(0)
+            df = pd.read_excel(file_content, header=header_row)
 
-        df.columns = df.columns.str.strip()
-        if 'Выручка с НДС' not in df.columns: return None
+        df.columns = df.columns.astype(str).str.strip()
+        required_columns = {'Количество', 'Себестоимость', 'Выручка с НДС'}
+        missing_columns = required_columns.difference(df.columns)
+        if 'Выручка с НДС' not in df.columns:
+            return None, f"Не найдена колонка 'Выручка с НДС' в файле: {filename}", warnings
+        if missing_columns:
+            warnings.append(f"В файле отсутствуют колонки: {', '.join(sorted(missing_columns))}. {filename}")
 
         col_name = df.columns[0]
         df = df.dropna(subset=[col_name])
@@ -211,9 +235,9 @@ def process_single_file(file_content, filename=""):
             df['Поставщик'] = 'Не указан'
         # ----------------------------------------
 
-        return df
-    except Exception:
-        return None
+        return df, None, warnings
+    except (ValueError, KeyError, pd.errors.ParserError) as exc:
+        return None, f"Ошибка обработки файла {filename}: {exc}", warnings
 
 @st.cache_data(ttl=3600, show_spinner="Скачиваем данные с Яндекс.Диска...")
 def load_all_from_yandex(folder_path):
@@ -223,16 +247,22 @@ def load_all_from_yandex(folder_path):
     api_url = 'https://cloud-api.yandex.net/v1/disk/resources'
     params = {'path': folder_path, 'limit': 2000}
     try:
-        response = requests.get(api_url, headers=headers, params=params)
+        response = requests.get(api_url, headers=headers, params=params, timeout=20)
         if response.status_code != 200: return []
         items = response.json().get('_embedded', {}).get('items', [])
         files = [i for i in items if i['type'] == 'file']
         data_frames = []
         for item in files:
             try:
-                file_resp = requests.get(item['file'], headers=headers)
-                df = process_single_file(BytesIO(file_resp.content), filename=item['name'])
-                if df is not None: data_frames.append(df)
+                file_resp = requests.get(item['file'], headers=headers, timeout=20)
+                df, error, warnings = process_single_file(BytesIO(file_resp.content), filename=item['name'])
+                if error:
+                    st.warning(error)
+                else:
+                    for warning in warnings:
+                        st.warning(warning)
+                if df is not None:
+                    data_frames.append(df)
             except: continue
         return data_frames
     except: return []
@@ -251,8 +281,14 @@ if source_mode == "Ручная загрузка":
     if uploaded_files:
         temp_data = []
         for f in uploaded_files:
-            df = process_single_file(f, f.name)
-            if df is not None: temp_data.append(df)
+            df, error, warnings = process_single_file(f, f.name)
+            if error:
+                st.warning(error)
+            else:
+                for warning in warnings:
+                    st.warning(warning)
+            if df is not None:
+                temp_data.append(df)
         if temp_data:
             st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
 elif source_mode == "Яндекс.Диск":
