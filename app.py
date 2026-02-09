@@ -594,6 +594,7 @@ if st.session_state.df_full is not None:
     
     # Используем session_state для сохранения выбора вкладки, если нужно, но st.radio и так сохраняет состояние
     selected_tab = st.radio("Раздел:", tab_options, horizontal=True, label_visibility="collapsed")
+    st.sidebar.caption("v2.2 (Cloud Fixed) 🚀")
     st.write("---")
 
     # --- 1. ИНФЛЯЦИЯ ---
