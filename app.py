@@ -8,6 +8,13 @@ import numpy as np
 from io import BytesIO
 from datetime import datetime, timedelta
 
+# --- V2.1 Helper ---
+def get_secret(key):
+    try:
+        return st.secrets.get(key)
+    except FileNotFoundError:
+        return None
+
 # --- НАСТРОЙКИ СТРАНИЦЫ ---
 st.set_page_config(page_title="RestoAnalytics: Место", layout="wide", initial_sidebar_state="expanded")
 st.title("📊 Аналитика: Бар МЕСТО")
@@ -241,7 +248,7 @@ def process_single_file(file_content, filename=""):
 
 @st.cache_data(ttl=3600, show_spinner="Скачиваем данные с Яндекс.Диска...")
 def load_all_from_yandex(folder_path):
-    token = st.secrets.get("YANDEX_TOKEN")
+    token = get_secret("YANDEX_TOKEN")
     if not token: return None
     headers = {'Authorization': f'OAuth {token}'}
     api_url = 'https://cloud-api.yandex.net/v1/disk/resources'
@@ -294,8 +301,8 @@ if source_mode == "Ручная загрузка":
 elif source_mode == "Яндекс.Диск":
     yandex_path = st.sidebar.text_input("Папка на Диске:", "Отчеты_Ресторан")
     if st.sidebar.button("🔄 Скачать отчеты"):
-        if not st.secrets.get("YANDEX_TOKEN"):
-             st.error("⚠️ Нет токена в Secrets!")
+        if not get_secret("YANDEX_TOKEN"):
+             st.error("⚠️ Нет токена в Secrets (локально или в облаке)!")
         else:
             temp_data = load_all_from_yandex(yandex_path)
             if temp_data:
@@ -339,32 +346,74 @@ if st.session_state.df_full is not None:
         st.download_button("📥 Скачать базу (CSV)", csv, f"Analytics_{datetime.now().date()}.csv", "text/csv")
 
     dates_list = sorted(df_full['Дата_Отчета'].unique(), reverse=True)
-    date_options = ["📅 ВСЕ ВРЕМЯ (Сводный)"] + [d.strftime('%d.%m.%Y') for d in dates_list]
     
-    st.write("---")
-    col_sel1, col_sel2 = st.columns([1, 4])
-    selected_option = col_sel1.selectbox("Период:", date_options)
+    # --- СЕЛЕКТОР ПЕРИОДОВ ---
+    st.sidebar.write("---")
+    st.sidebar.header("🗓 Период Анализа")
     
-    if "ВСЕ ВРЕМЯ" in selected_option:
-        target_date = df_full['Дата_Отчета'].max()
-        df_view = df_full 
-    else:
-        target_date = datetime.strptime(selected_option, '%d.%m.%Y')
-        df_view = df_full[df_full['Дата_Отчета'] == target_date]
+    # 1. Основной период (по умолчанию - последний месяц)
+    # Определяем доступные месяцы
+    df_full['Month_Year'] = df_full['Дата_Отчета'].dt.to_period('M')
+    available_months = sorted(df_full['Month_Year'].unique(), reverse=True)
+    
+    if available_months:
+        default_month = available_months[0]
+        selected_month = st.sidebar.selectbox("📅 Основной месяц:", available_months, format_func=lambda x: x.strftime('%B %Y'))
+        
+        # 2. Период для сравнения
+        compare_options = ["Предыдущий месяц (MoM)", "Тот же месяц прошлого года (YoY)", "Без сравнения"]
+        compare_mode = st.sidebar.radio("Сравнить с:", compare_options)
+        
+        # Фильтрация данных для ОСНОВНОГО периода
+        df_current = df_full[df_full['Month_Year'] == selected_month]
+        target_date = df_current['Дата_Отчета'].max() # Для инфляции и заголовков
 
-    # KPI
-    total_rev = df_view['Выручка с НДС'].sum()
-    total_cost = df_view['Себестоимость'].sum()
-    avg_fc = (total_cost / total_rev * 100) if total_rev > 0 else 0
-    
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-    kpi1.metric("💰 Выручка", f"{total_rev:,.0f} ₽")
-    kpi2.metric("📉 Фуд-кост", f"{avg_fc:.1f} %")
-    kpi3.metric("💳 Маржа", f"{(total_rev - total_cost):,.0f} ₽")
-    kpi4.metric("🧾 Позиций", len(df_view))
+        # Фильтрация данных для ПРЕДЫДУЩЕГО периода
+        df_prev = pd.DataFrame() # Пустой по умолчанию
+        prev_label = ""
+        
+        if compare_mode == "Предыдущий месяц (MoM)":
+            prev_month = selected_month - 1
+            df_prev = df_full[df_full['Month_Year'] == prev_month]
+            prev_label = prev_month.strftime('%B %Y')
+        elif compare_mode == "Тот же месяц прошлого года (YoY)":
+            prev_month = selected_month - 12
+            df_prev = df_full[df_full['Month_Year'] == prev_month]
+            prev_label = prev_month.strftime('%B %Y')
+            
+        # --- KPI С РАСЧЕТОМ ДЕЛЬТЫ ---
+        def calc_kpis(df):
+            if df.empty: return 0, 0, 0, 0
+            rev = df['Выручка с НДС'].sum()
+            cost = df['Себестоимость'].sum()
+            margin = rev - cost
+            fc = (cost / rev * 100) if rev > 0 else 0
+            return rev, cost, margin, fc
+
+        cur_rev, cur_cost, cur_margin, cur_fc = calc_kpis(df_current)
+        prev_rev, prev_cost, prev_margin, prev_fc = calc_kpis(df_prev)
+        
+        # Дельты
+        delta_rev = cur_rev - prev_rev if not df_prev.empty else 0
+        delta_margin = cur_margin - prev_margin if not df_prev.empty else 0
+        delta_fc = cur_fc - prev_fc if not df_prev.empty else 0
+        
+        st.write(f"### 📊 Сводка: {selected_month.strftime('%B %Y')} vs {prev_label if not df_prev.empty else 'Нет данных'}")
+        
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        kpi1.metric("💰 Выручка", f"{cur_rev:,.0f} ₽", f"{delta_rev:+,.0f} ₽" if not df_prev.empty else None)
+        kpi2.metric("📉 Фуд-кост", f"{cur_fc:.1f} %", f"{delta_fc:+.1f} %" if not df_prev.empty else None, delta_color="inverse")
+        kpi3.metric("💳 Маржа", f"{cur_margin:,.0f} ₽", f"{delta_margin:+,.0f} ₽" if not df_prev.empty else None)
+        kpi4.metric("🧾 Позиций", len(df_current))
+
+        df_view = df_current # Для совместимости с остальным кодом
+    else:
+        st.warning("Нет данных с датами.")
+        df_view = df_full
+        target_date = datetime.now()
 
     # --- НАВИГАЦИЯ ---
-    tab_options = ["🔥 Инфляция", "📉 Динамика и Поставщики", "🍰 Меню и Косты", "⭐ Матрица (ABC)", "🗓 Дни недели", "📦 План Закупок"]
+    tab_options = ["🔥 Инфляция", "📉 Динамика и Поставщики", "🍰 Меню и Косты", "⭐ Матрица (ABC)", "🗓 Дни недели", "📦 План Закупок", "🔮 Симулятор"]
     
     # Используем session_state для сохранения выбора вкладки, если нужно, но st.radio и так сохраняет состояние
     selected_tab = st.radio("Раздел:", tab_options, horizontal=True, label_visibility="collapsed")
@@ -558,6 +607,90 @@ if st.session_state.df_full is not None:
         
         st.metric("💰 Бюджет", f"{plan_df['Budget'].sum():,.0f} ₽")
         st.dataframe(plan_df[['Блюдо', 'Unit_Cost', 'Need_Qty', 'Budget']].style.format({'Unit_Cost': "{:.1f} ₽", 'Need_Qty': "{:.1f}", 'Budget': "{:,.0f} ₽"}).background_gradient(subset=['Budget'], cmap='Greens'), use_container_width=True)
+
+    # --- 7. СИМУЛЯТОР ---
+    elif selected_tab == "🔮 Симулятор":
+        st.subheader("🔮 Симулятор: Анализ 'Что если?'")
+        st.info("Экспериментируйте с ценами и затратами, чтобы увидеть, как изменится ваша прибыль.")
+        
+        col_input, col_result = st.columns([1, 2])
+        
+        with col_input:
+            st.write("### 🎛 Настройки")
+            
+            # 1. Выбор категорий
+            all_cats = sorted(df_full['Категория'].dropna().unique())
+            selected_cats = st.multiselect("Выберите категории:", all_cats, default=all_cats[:3] if len(all_cats) > 3 else all_cats)
+            
+            if not selected_cats:
+                st.warning("👈 Выберите хотя бы одну категорию.")
+            else:
+                st.markdown("---")
+                st.write("**Параметры моделирования:**")
+                
+                delta_price = st.slider("💰 Изменить Цену продажи (%)", -50, 50, 0, step=1, help="Насколько мы поднимем или опустим цены в меню")
+                delta_cost = st.slider("📉 Изменить Себестоимость (%)", -50, 50, 0, step=1, help="Если поставщики поднимут цены")
+                delta_vol = st.slider("🛒 Эластичность спроса (Продажи %)", -50, 50, 0, step=1, help="Как изменится количество чеков (обычно если цена растет, продажи падают)")
+
+        with col_result:
+            if selected_cats:
+                # Фильтрация данных
+                df_sim = df_view[df_view['Категория'].isin(selected_cats)].copy()
+                
+                # Базовые показатели
+                base_revenue = df_sim['Выручка с НДС'].sum()
+                base_cost_total = df_sim['Себестоимость'].sum()
+                base_margin = base_revenue - base_cost_total
+                base_qty = df_sim['Количество'].sum()
+                
+                # Симуляция
+                # Новая цена = Старая цена * (1 + %) -> Новая выручка на ед. = Старая выручка * (1 + %)
+                # Новая с/с = Старая с/с * (1 + %)
+                # Новое кол-во = Старое кол-во * (1 + %)
+                
+                sim_revenue = base_revenue * (1 + delta_price/100) * (1 + delta_vol/100)
+                sim_cost_total = base_cost_total * (1 + delta_cost/100) * (1 + delta_vol/100)
+                sim_margin = sim_revenue - sim_cost_total
+                
+                # Дельты
+                diff_rev = sim_revenue - base_revenue
+                diff_margin = sim_margin - base_margin
+                
+                st.write(f"### 📊 Прогноз результата (Категории: {len(selected_cats)})")
+                
+                # Метрики
+                kpi1, kpi2, kpi3 = st.columns(3)
+                kpi1.metric("Выручка (Sim)", f"{sim_revenue:,.0f} ₽", f"{diff_rev:+,.0f} ₽")
+                kpi2.metric("Маржа (Sim)", f"{sim_margin:,.0f} ₽", f"{diff_margin:+,.0f} ₽")
+                
+                new_profitability = (sim_margin / sim_revenue * 100) if sim_revenue > 0 else 0
+                old_profitability = (base_margin / base_revenue * 100) if base_revenue > 0 else 0
+                kpi3.metric("Рентабельность", f"{new_profitability:.1f}%", f"{new_profitability - old_profitability:+.1f}%")
+                
+                st.markdown("---")
+                
+                # График сравнения
+                st.write("#### ⚖️ Сравнение: До и После")
+                
+                comp_data = [
+                    {'Показатель': 'Выручка', 'Сценарий': 'Было', 'Сумма': base_revenue},
+                    {'Показатель': 'Выручка', 'Сценарий': 'Станет', 'Сумма': sim_revenue},
+                    {'Показатель': 'Маржа (Прибыль)', 'Сценарий': 'Было', 'Сумма': base_margin},
+                    {'Показатель': 'Маржа (Прибыль)', 'Сценарий': 'Станет', 'Сумма': sim_margin},
+                ]
+                df_comp = pd.DataFrame(comp_data)
+                
+                fig_comp = px.bar(df_comp, x='Показатель', y='Сумма', color='Сценарий', barmode='group', 
+                                  color_discrete_map={'Было': 'gray', 'Станет': 'blue' if diff_margin >= 0 else 'red'})
+                fig_comp.update_traces(texttemplate='%{y:,.0f} ₽', textposition='auto')
+                st.plotly_chart(fig_comp, use_container_width=True)
+                
+                if diff_margin > 0:
+                    st.success(f"🚀 Отличный сценарий! Вы заработаете на **{diff_margin:,.0f} ₽** больше.")
+                elif diff_margin < 0:
+                    st.error(f"⚠️ Осторожно! Это приведет к убыткам в размере **{abs(diff_margin):,.0f} ₽**.")
+                else:
+                    st.info("Никаких изменений.")
 
 else:
     st.info("👈 Загрузите данные.")
