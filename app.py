@@ -467,6 +467,12 @@ with st.sidebar.expander("⚙️ Загрузка данных / Правка", 
                 st.success(f"✅ Справочник применен!")
         except: pass
 
+    st.write("---")
+    # Кнопка скачивания общей базы (moved here)
+    if st.session_state.df_full is not None:
+        csv = st.session_state.df_full.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("📥 Скачать базу (CSV)", csv, f"Analytics_{datetime.now().date()}.csv", "text/csv")
+
 # --- ОСНОВНАЯ ЛОГИКА ---
 if st.session_state.df_full is not None:
     # ЛЕЧЕНИЕ ДАННЫХ В ПАМЯТИ (Если вдруг нет колонки)
@@ -476,10 +482,9 @@ if st.session_state.df_full is not None:
     df_full = st.session_state.df_full.copy()
     df_full['Макро_Категория'] = df_full['Категория'].apply(get_macro_category)
     
-    # Кнопка скачивания общей базы
-    csv = df_full.to_csv(index=False).encode('utf-8-sig')
-    with st.sidebar:
-        st.download_button("📥 Скачать базу (CSV)", csv, f"Analytics_{datetime.now().date()}.csv", "text/csv")
+    df_full['Макро_Категория'] = df_full['Категория'].apply(get_macro_category)
+    
+    # Кнопка скачивания moved to Settings expander
 
     dates_list = sorted(df_full['Дата_Отчета'].unique(), reverse=True)
     
@@ -566,7 +571,7 @@ if st.session_state.df_full is not None:
 
         # --- ГРАФИК ДИНАМИКИ ПО ДНЯМ ---
         if period_mode == "📅 Месяц (Сравнение)" and not df_current.empty:
-            with st.expander("📈 Динамика Выручки (День за днём)", expanded=True):
+            with st.expander("📈 Динамика Выручки (День за днём)", expanded=False):
                 # Подготовка данных
                 df_chart_cur = df_current.groupby(df_current['Дата_Отчета'].dt.day)['Выручка с НДС'].sum().cumsum()
                 
@@ -723,8 +728,13 @@ if st.session_state.df_full is not None:
             df_menu['Фудкост %'] = np.where(df_menu['Выручка с НДС']>0, df_menu['Себестоимость']/df_menu['Выручка с НДС']*100, 0)
             df_menu = df_menu.sort_values('Выручка с НДС', ascending=False).head(50)
             df_menu = df_menu.rename(columns={target_cat: 'Категория'})
+            
+            # Highlight High FC > 26%
+            def highlight_fc(s):
+                return ['color: #FF4B4B; font-weight: bold' if v > 26 else '' for v in s]
+
             st.dataframe(
-                df_menu[['Блюдо', 'Категория', 'Выручка с НДС', 'Фудкост %']],
+                df_menu.style.apply(highlight_fc, subset=['Фудкост %'], axis=0).format(precision=1),
                 column_config={
                     "Выручка с НДС": st.column_config.NumberColumn(format="%.0f ₽"),
                     "Фудкост %": st.column_config.NumberColumn(format="%.1f %%"),
