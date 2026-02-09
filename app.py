@@ -327,6 +327,62 @@ def process_single_file(file_content, filename=""):
         return None, f"Ошибка обработки файла {filename}: {exc}", warnings
 
 @st.cache_data(ttl=3600, show_spinner="Скачиваем данные с Яндекс.Диска...")
+
+# --- SMART INSIGHTS ENGINE ---
+def generate_insights(df_curr, df_prev, cur_rev, prev_rev, cur_fc):
+    with st.expander("💡 Smart Insights (Анализ Аномалий)", expanded=True):
+        alerts = []
+        
+        # 1. Revenue Check
+        if prev_rev > 0:
+            rev_diff_pct = (cur_rev - prev_rev) / prev_rev * 100
+            if rev_diff_pct < -10:
+                st.error(f"📉 **Тревога по Выручке**: Падение на {abs(rev_diff_pct):.1f}% по сравнению с прошлым периодом.")
+                alerts.append("rev_drop")
+            elif rev_diff_pct > 20:
+                st.success(f"🚀 **Отличный рост**: Выручка выросла на {rev_diff_pct:.1f}%!")
+                alerts.append("rev_growth")
+
+        # 2. Food Cost Check
+        TARGET_FC = 35.0
+        if cur_fc > TARGET_FC:
+            st.warning(f"⚠️ **Высокий Фуд-кост**: Текущий {cur_fc:.1f}% (Цель: {TARGET_FC}%).")
+            alerts.append("high_fc")
+        
+        # 3. Ingredient Inflation (Top Spike)
+        if not df_prev.empty and 'Unit_Cost' in df_curr.columns and 'Unit_Cost' in df_prev.columns:
+            # Сравниваем средние цены закупки
+            curr_prices = df_curr.groupby('Блюдо')['Unit_Cost'].mean()
+            prev_prices = df_prev.groupby('Блюдо')['Unit_Cost'].mean()
+            
+            price_changes = (curr_prices - prev_prices) / prev_prices * 100
+            price_changes = price_changes.dropna().sort_values(ascending=False)
+            
+            if not price_changes.empty:
+                top_inflator = price_changes.index[0]
+                top_val = price_changes.iloc[0]
+                if top_val > 15: # Если выросло более чем на 15%
+                    st.warning(f"💸 **Скачок цены**: {top_inflator} подорожал на {top_val:.0f}%.")
+                    alerts.append("inflation")
+
+        # 4. Dead Items ("Dogs")
+        # Logic: Low Sales (< Avg) AND Low Margin (< Avg)
+        if not df_curr.empty:
+            item_stats = df_curr.groupby('Блюдо').agg({'Количество': 'sum', 'Выручка с НДС': 'sum', 'Себестоимость': 'sum'}).reset_index()
+            item_stats['Маржа'] = item_stats['Выручка с НДС'] - item_stats['Себестоимость']
+            item_stats = item_stats[item_stats['Количество'] > 0]
+            
+            avg_qty = item_stats['Количество'].mean()
+            avg_margin = item_stats['Маржа'].mean() # Total margin per item line
+            
+            dogs = item_stats[(item_stats['Количество'] < avg_qty * 0.5) & (item_stats['Маржа'] < avg_margin * 0.5)]
+            if len(dogs) > 5:
+                st.info(f"🐶 **Мертвый груз**: Найдено {len(dogs)} позиций 'Собак' (мало продаж, мало денег). Проверьте вкладку 'Матрица'.")
+                alerts.append("dogs")
+
+        if not alerts:
+            st.success("✅ **Всё спокойно**: Критических отклонений не найдено.")
+
 def load_all_from_yandex(folder_path):
     token = get_secret("YANDEX_TOKEN")
     if not token: return None
@@ -495,7 +551,11 @@ if st.session_state.df_full is not None:
         delta_margin = cur_margin - prev_margin if not df_prev.empty else 0
         delta_fc = cur_fc - prev_fc if not df_prev.empty else 0
         
-        sub_title = "Произвольный период" if period_mode == "� Интервал дат" else f"{selected_month.strftime('%B %Y')} vs {prev_label if not df_prev.empty else 'Нет данных'}"
+        sub_title = "Произвольный период" if period_mode == "📆 Интервал дат" else f"{selected_month.strftime('%B %Y')} vs {prev_label if not df_prev.empty else 'Нет данных'}"
+        
+        # --- SMART INSIGHTS ---
+        generate_insights(df_current, df_prev, cur_rev, prev_rev, cur_fc)
+        
         st.write(f"### 📊 Сводка: {sub_title}")
         
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
