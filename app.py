@@ -495,7 +495,7 @@ with st.sidebar.expander("⚙️ Загрузка данных / Правка", 
             with st.spinner("Формирую отчет..."):
                 target_date = datetime.now() # Или брать из фильтра, если он есть
                 report_text = telegram_utils.format_report(st.session_state.df_full, target_date)
-                success, msg = telegram_utils.send_telegram_message(tg_token, tg_chat, report_text)
+                success, msg = telegram_utils.send_to_all(tg_token, tg_chat, report_text)
                 if success:
                     st.success(msg)
                 else:

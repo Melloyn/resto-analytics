@@ -77,3 +77,33 @@ def send_telegram_message(token, chat_id, message):
             return False, f"Ошибка Telegram: {response.text}"
     except Exception as e:
         return False, f"Ошибка сети: {str(e)}"
+
+def send_to_all(token, chat_ids_raw, message):
+    """
+    Sends message to multiple users (comma separated string of IDs).
+    """
+    if not chat_ids_raw:
+        return False, "❌ Нет Chat ID."
+    
+    # Split by comma and clean up
+    ids = [id.strip() for id in str(chat_ids_raw).split(',') if id.strip()]
+    
+    if not ids:
+        return False, "❌ Список ID пуст."
+
+    success_count = 0
+    errors = []
+
+    for chat_id in ids:
+        ok, msg = send_telegram_message(token, chat_id, message)
+        if ok:
+            success_count += 1
+        else:
+            errors.append(msg)
+    
+    if success_count == len(ids):
+        return True, f"✅ Отправлено всем ({success_count} чел.)"
+    elif success_count > 0:
+        return True, f"⚠️ Отправлено {success_count} из {len(ids)}. Ошибки: {'; '.join(errors)}"
+    else:
+        return False, f"❌ Ошибка отправки: {'; '.join(errors)}"

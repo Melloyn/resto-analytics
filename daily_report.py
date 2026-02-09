@@ -33,7 +33,7 @@ def send_daily_report():
     report = telegram_utils.format_report(df, datetime.now())
 
     # 3. Send
-    success, msg = telegram_utils.send_telegram_message(TOKEN, CHAT_ID, report)
+    success, msg = telegram_utils.send_to_all(TOKEN, CHAT_ID, report)
     print(msg)
 
 if __name__ == "__main__":
