@@ -274,64 +274,64 @@ def load_all_from_yandex(folder_path):
         return data_frames
     except: return []
 
-# --- ИНТЕРФЕЙС ЗАГРУЗКИ ---
-st.sidebar.header("📂 1. Источник данных")
-source_mode = st.sidebar.radio("Откуда берем отчеты?", ["Яндекс.Диск", "Ручная загрузка"])
+# --- ИНТЕРФЕЙС ЗАГРУЗКИ (Свернутый) ---
+with st.sidebar.expander("⚙️ Загрузка данных / Правка", expanded=False):
+    st.header("📂 1. Источник данных")
+    source_mode = st.radio("Откуда берем отчеты?", ["Яндекс.Диск", "Ручная загрузка"])
 
-if st.sidebar.button("🗑 Сбросить все данные"):
-    st.cache_data.clear()
-    st.session_state.df_full = None
-    st.rerun()
+    if st.button("🗑 Сбросить все данные"):
+        st.cache_data.clear()
+        st.session_state.df_full = None
+        st.rerun()
 
-if source_mode == "Ручная загрузка":
-    uploaded_files = st.sidebar.file_uploader("Загрузить отчеты (CSV/Excel)", accept_multiple_files=True)
-    if uploaded_files:
-        temp_data = []
-        for f in uploaded_files:
-            df, error, warnings = process_single_file(f, f.name)
-            if error:
-                st.warning(error)
-            else:
-                for warning in warnings:
-                    st.warning(warning)
-            if df is not None:
-                temp_data.append(df)
-        if temp_data:
-            st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
-elif source_mode == "Яндекс.Диск":
-    yandex_path = st.sidebar.text_input("Папка на Диске:", "Отчеты_Ресторан")
-    if st.sidebar.button("🔄 Скачать отчеты"):
-        if not get_secret("YANDEX_TOKEN"):
-             st.error("⚠️ Нет токена в Secrets (локально или в облаке)!")
-        else:
-            temp_data = load_all_from_yandex(yandex_path)
+    if source_mode == "Ручная загрузка":
+        uploaded_files = st.file_uploader("Загрузить отчеты (CSV/Excel)", accept_multiple_files=True)
+        if uploaded_files:
+            temp_data = []
+            for f in uploaded_files:
+                df, error, warnings = process_single_file(f, f.name)
+                if error:
+                    st.warning(error)
+                else:
+                    for warning in warnings:
+                        st.warning(warning)
+                if df is not None:
+                    temp_data.append(df)
             if temp_data:
                 st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
-                st.success(f"Загружено {len(temp_data)} отчетов!")
+    elif source_mode == "Яндекс.Диск":
+        yandex_path = st.text_input("Папка на Диске:", "Отчеты_Ресторан")
+        if st.button("🔄 Скачать отчеты"):
+            if not get_secret("YANDEX_TOKEN"):
+                 st.error("⚠️ Нет токена в Secrets (локально или в облаке)!")
             else:
-                st.warning("Файлов не найдено.")
+                temp_data = load_all_from_yandex(yandex_path)
+                if temp_data:
+                    st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
+                    st.success(f"Загружено {len(temp_data)} отчетов!")
+                else:
+                    st.warning("Файлов не найдено.")
+    
+    st.write("---")
+    st.header("🗂️ Ручная правка")
+    st.info("Если автомат ошибся, загрузи исправленный список (Блюдо, Категория).")
+    category_file = st.file_uploader("Файл справочника", type=['csv', 'xlsx']) # Moved inside expander
 
-# --- МЕНЕДЖЕР КАТЕГОРИЙ (РУЧНОЙ) ---
-st.sidebar.write("---")
-st.sidebar.header("🗂️ Ручная правка")
-st.sidebar.info("Если автомат ошибся, загрузи исправленный список (Блюдо, Категория).")
-category_file = st.sidebar.file_uploader("Файл справочника", type=['csv', 'xlsx'])
+    if st.session_state.df_full is not None and category_file is not None:
+        try:
+            if category_file.name.endswith('.csv'):
+                cat_df = pd.read_csv(category_file)
+            else:
+                cat_df = pd.read_excel(category_file)
+            col_item = next((c for c in cat_df.columns if 'блюдо' in c.lower() or 'item' in c.lower()), None)
+            col_cat = next((c for c in cat_df.columns if 'категория' in c.lower() or 'category' in c.lower()), None)
+            if col_item and col_cat:
+                mapping = dict(zip(cat_df[col_item], cat_df[col_cat]))
+                st.session_state.df_full['Категория'] = st.session_state.df_full['Блюдо'].map(mapping).fillna(st.session_state.df_full['Категория'])
+                st.success(f"✅ Справочник применен!")
+        except: pass
 
-if st.session_state.df_full is not None and category_file is not None:
-    try:
-        if category_file.name.endswith('.csv'):
-            cat_df = pd.read_csv(category_file)
-        else:
-            cat_df = pd.read_excel(category_file)
-        col_item = next((c for c in cat_df.columns if 'блюдо' in c.lower() or 'item' in c.lower()), None)
-        col_cat = next((c for c in cat_df.columns if 'категория' in c.lower() or 'category' in c.lower()), None)
-        if col_item and col_cat:
-            mapping = dict(zip(cat_df[col_item], cat_df[col_cat]))
-            st.session_state.df_full['Категория'] = st.session_state.df_full['Блюдо'].map(mapping).fillna(st.session_state.df_full['Категория'])
-            st.sidebar.success(f"✅ Справочник применен!")
-    except: pass
-
-# --- АНАЛИТИКА ---
+# --- ОСНОВНАЯ ЛОГИКА ---
 if st.session_state.df_full is not None:
     # ЛЕЧЕНИЕ ДАННЫХ В ПАМЯТИ (Если вдруг нет колонки)
     if 'Поставщик' not in st.session_state.df_full.columns:
@@ -340,9 +340,9 @@ if st.session_state.df_full is not None:
     df_full = st.session_state.df_full.copy()
     df_full['Макро_Категория'] = df_full['Категория'].apply(get_macro_category)
     
+    # Кнопка скачивания общей базы
+    csv = df_full.to_csv(index=False).encode('utf-8-sig')
     with st.sidebar:
-        st.write("---")
-        csv = df_full.to_csv(index=False).encode('utf-8-sig')
         st.download_button("📥 Скачать базу (CSV)", csv, f"Analytics_{datetime.now().date()}.csv", "text/csv")
 
     dates_list = sorted(df_full['Дата_Отчета'].unique(), reverse=True)
@@ -351,37 +351,54 @@ if st.session_state.df_full is not None:
     st.sidebar.write("---")
     st.sidebar.header("🗓 Период Анализа")
     
-    # 1. Основной период (по умолчанию - последний месяц)
-    # Определяем доступные месяцы
-    df_full['Month_Year'] = df_full['Дата_Отчета'].dt.to_period('M')
-    available_months = sorted(df_full['Month_Year'].unique(), reverse=True)
+    # Выбор режима: Месяц (для KPI/MoM) или Произвольный (для детального анализа)
+    period_mode = st.sidebar.radio("Режим:", ["📅 Месяц (Сравнение)", "📆 Интервал дат"], label_visibility="collapsed", horizontal=True)
     
-    if available_months:
-        default_month = available_months[0]
-        selected_month = st.sidebar.selectbox("📅 Основной месяц:", available_months, format_func=lambda x: x.strftime('%B %Y'))
+    df_current = pd.DataFrame()
+    df_prev = pd.DataFrame()
+    prev_label = ""
+    target_date = datetime.now()
+    
+    if period_mode == "📅 Месяц (Сравнение)":
+        df_full['Month_Year'] = df_full['Дата_Отчета'].dt.to_period('M')
+        available_months = sorted(df_full['Month_Year'].unique(), reverse=True)
         
-        # 2. Период для сравнения
-        compare_options = ["Предыдущий месяц (MoM)", "Тот же месяц прошлого года (YoY)", "Без сравнения"]
-        compare_mode = st.sidebar.radio("Сравнить с:", compare_options)
-        
-        # Фильтрация данных для ОСНОВНОГО периода
-        df_current = df_full[df_full['Month_Year'] == selected_month]
-        target_date = df_current['Дата_Отчета'].max() # Для инфляции и заголовков
-
-        # Фильтрация данных для ПРЕДЫДУЩЕГО периода
-        df_prev = pd.DataFrame() # Пустой по умолчанию
-        prev_label = ""
-        
-        if compare_mode == "Предыдущий месяц (MoM)":
-            prev_month = selected_month - 1
-            df_prev = df_full[df_full['Month_Year'] == prev_month]
-            prev_label = prev_month.strftime('%B %Y')
-        elif compare_mode == "Тот же месяц прошлого года (YoY)":
-            prev_month = selected_month - 12
-            df_prev = df_full[df_full['Month_Year'] == prev_month]
-            prev_label = prev_month.strftime('%B %Y')
+        if available_months:
+            selected_month = st.sidebar.selectbox("Выбери месяц:", available_months, format_func=lambda x: x.strftime('%B %Y'))
+            compare_options = ["Предыдущий месяц", "Тот же месяц (год назад)", "Нет"]
+            compare_mode = st.sidebar.selectbox("Сравнить с:", compare_options)
             
-        # --- KPI С РАСЧЕТОМ ДЕЛЬТЫ ---
+            # Текущий
+            df_current = df_full[df_full['Month_Year'] == selected_month]
+            target_date = df_current['Дата_Отчета'].max()
+            
+            # Сравнение
+            if compare_mode == "Предыдущий месяц":
+                prev_month = selected_month - 1
+                df_prev = df_full[df_full['Month_Year'] == prev_month]
+                prev_label = prev_month.strftime('%B %Y')
+            elif compare_mode == "Тот же месяц (год назад)":
+                prev_month = selected_month - 12
+                df_prev = df_full[df_full['Month_Year'] == prev_month]
+                prev_label = prev_month.strftime('%B %Y')
+    else:
+        # Режим ИНТЕРВАЛ
+        min_date = df_full['Дата_Отчета'].min().date()
+        max_date = df_full['Дата_Отчета'].max().date()
+        date_range = st.sidebar.date_input("Выберите даты:", value=(min_date, max_date), min_value=min_date, max_value=max_date)
+        
+        if isinstance(date_range, tuple) and len(date_range) == 2:
+            start_d, end_d = date_range
+            df_current = df_full[(df_full['Дата_Отчета'].dt.date >= start_d) & (df_full['Дата_Отчета'].dt.date <= end_d)]
+            target_date = end_d
+            prev_label = "Сравнение недоступно в режиме интервала"
+            compare_mode = "Нет" # Для графика
+        else:
+            st.warning("Выберите корректный интервал")
+
+    # --- KPI DISPLAY ---
+    if not df_current.empty:
+        # Расчет KPI
         def calc_kpis(df):
             if df.empty: return 0, 0, 0, 0
             rev = df['Выручка с НДС'].sum()
@@ -398,13 +415,28 @@ if st.session_state.df_full is not None:
         delta_margin = cur_margin - prev_margin if not df_prev.empty else 0
         delta_fc = cur_fc - prev_fc if not df_prev.empty else 0
         
-        st.write(f"### 📊 Сводка: {selected_month.strftime('%B %Y')} vs {prev_label if not df_prev.empty else 'Нет данных'}")
+        sub_title = "Произвольный период" if period_mode == "� Интервал дат" else f"{selected_month.strftime('%B %Y')} vs {prev_label if not df_prev.empty else 'Нет данных'}"
+        st.write(f"### 📊 Сводка: {sub_title}")
         
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
         kpi1.metric("💰 Выручка", f"{cur_rev:,.0f} ₽", f"{delta_rev:+,.0f} ₽" if not df_prev.empty else None)
         kpi2.metric("📉 Фуд-кост", f"{cur_fc:.1f} %", f"{delta_fc:+.1f} %" if not df_prev.empty else None, delta_color="inverse")
         kpi3.metric("💳 Маржа", f"{cur_margin:,.0f} ₽", f"{delta_margin:+,.0f} ₽" if not df_prev.empty else None)
         kpi4.metric("🧾 Позиций", len(df_current))
+
+        # --- ГРАФИК ДИНАМИКИ ПО ДНЯМ ---
+        if period_mode == "📅 Месяц (Сравнение)" and not df_current.empty:
+            with st.expander("📈 Динамика Выручки (День за днём)", expanded=True):
+                # Подготовка данных
+                df_chart_cur = df_current.groupby(df_current['Дата_Отчета'].dt.day)['Выручка с НДС'].sum().cumsum()
+                
+                chart_data = pd.DataFrame({'Текущий': df_chart_cur})
+                
+                if not df_prev.empty and compare_mode != "Нет":
+                    df_chart_prev = df_prev.groupby(df_prev['Дата_Отчета'].dt.day)['Выручка с НДС'].sum().cumsum()
+                    chart_data['Прошлый'] = df_chart_prev
+                
+                st.line_chart(chart_data)
 
         df_view = df_current # Для совместимости с остальным кодом
     else:
@@ -459,13 +491,27 @@ if st.session_state.df_full is not None:
             with col_up:
                 st.write("### 🔺 Топ-30: Цена выросла (Убыток)")
                 if not df_inf.empty:
-                    df_up = df_inf[df_inf['Рост %'] > 0].sort_values('Эффект (₽)', ascending=False).head(30)
-                    st.dataframe(df_up[['Товар', 'Рост %', 'Эффект (₽)']].style.format({'Рост %': "+{:.1f} %", 'Эффект (₽)': "-{:,.0f} ₽"}).background_gradient(subset=['Эффект (₽)'], cmap='Reds'), use_container_width=True)
+                    df_up = df_inf.sort_values('Эффект (₽)', ascending=False).head(30)
+                    st.dataframe(
+                        df_up[['Товар', 'Рост %', 'Эффект (₽)']],
+                        column_config={
+                            "Рост %": st.column_config.NumberColumn(format="+%.1f %%"),
+                            "Эффект (₽)": st.column_config.NumberColumn(format="%.0f ₽"),
+                        },
+                        use_container_width=True
+                    )
             with col_down:
                 st.write("### 🔻 Топ-30: Цена упала (Экономия)")
                 if not df_inf.empty:
-                    df_down = df_inf[df_inf['Рост %'] < 0].sort_values('Эффект (₽)', ascending=True).head(30)
-                    st.dataframe(df_down[['Товар', 'Рост %', 'Эффект (₽)']].style.format({'Рост %': "{:.1f} %", 'Эффект (₽)': "+{:,.0f} ₽"}).background_gradient(subset=['Эффект (₽)'], cmap='Greens_r'), use_container_width=True)
+                    df_down = df_inf.sort_values('Эффект (₽)', ascending=True).head(30)
+                    st.dataframe(
+                        df_down[['Товар', 'Рост %', 'Эффект (₽)']],
+                        column_config={
+                            "Рост %": st.column_config.NumberColumn(format="%.1f %%"),
+                            "Эффект (₽)": st.column_config.NumberColumn(format="%.0f ₽"),
+                        },
+                        use_container_width=True
+                    )
         else:
             st.success("Цены стабильны.")
 
@@ -492,7 +538,14 @@ if st.session_state.df_full is not None:
                 if 'Поставщик' in item_data.columns:
                     cols_to_show.append('Поставщик')
                 
-                st.dataframe(item_data[cols_to_show].style.format({'Unit_Cost': '{:.2f} ₽', 'Дата_Отчета': '{:%d.%m.%Y}'}), use_container_width=True)
+                st.dataframe(
+                    item_data[cols_to_show],
+                    column_config={
+                        "Unit_Cost": st.column_config.NumberColumn(format="%.2f ₽"),
+                        "Дата_Отчета": st.column_config.DateColumn(format="DD.MM.YYYY"),
+                    },
+                    use_container_width=True
+                )
             else:
                 st.warning("Нет данных по этому товару.")
 
@@ -530,7 +583,15 @@ if st.session_state.df_full is not None:
             df_menu['Фудкост %'] = np.where(df_menu['Выручка с НДС']>0, df_menu['Себестоимость']/df_menu['Выручка с НДС']*100, 0)
             df_menu = df_menu.sort_values('Выручка с НДС', ascending=False).head(50)
             df_menu = df_menu.rename(columns={target_cat: 'Категория'})
-            st.dataframe(df_menu[['Блюдо', 'Категория', 'Выручка с НДС', 'Фудкост %']].style.format({'Выручка с НДС': "{:,.0f} ₽", 'Фудкост %': "{:.1f} %"}).background_gradient(subset=['Фудкост %'], cmap='Reds', vmin=20, vmax=60), use_container_width=True, height=400)
+            st.dataframe(
+                df_menu[['Блюдо', 'Категория', 'Выручка с НДС', 'Фудкост %']],
+                column_config={
+                    "Выручка с НДС": st.column_config.NumberColumn(format="%.0f ₽"),
+                    "Фудкост %": st.column_config.NumberColumn(format="%.1f %%"),
+                },
+                use_container_width=True,
+                height=400
+            )
 
         st.write("---")
         st.subheader("🕵️‍♀️ Аудит категорий (Что попало в 'Прочее')")
@@ -606,7 +667,15 @@ if st.session_state.df_full is not None:
         plan_df = plan_df[plan_df['Need_Qty'] > 0.5].sort_values('Budget', ascending=False)
         
         st.metric("💰 Бюджет", f"{plan_df['Budget'].sum():,.0f} ₽")
-        st.dataframe(plan_df[['Блюдо', 'Unit_Cost', 'Need_Qty', 'Budget']].style.format({'Unit_Cost': "{:.1f} ₽", 'Need_Qty': "{:.1f}", 'Budget': "{:,.0f} ₽"}).background_gradient(subset=['Budget'], cmap='Greens'), use_container_width=True)
+        st.dataframe(
+            plan_df[['Блюдо', 'Unit_Cost', 'Need_Qty', 'Budget']],
+            column_config={
+                "Unit_Cost": st.column_config.NumberColumn(format="%.1f ₽"),
+                "Need_Qty": st.column_config.NumberColumn(format="%.1f"),
+                "Budget": st.column_config.NumberColumn(format="%.0f ₽"),
+            },
+            use_container_width=True
+        )
 
     # --- 7. СИМУЛЯТОР ---
     elif selected_tab == "🔮 Симулятор":
