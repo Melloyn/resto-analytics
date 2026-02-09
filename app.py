@@ -46,17 +46,17 @@ def setup_style():
 
         /* Sidebar Styling */
         [data-testid="stSidebar"] {
-            background-color: #111111;
-            border-right: 1px solid #333;
+            background-color: #111111 !important;
+            border-right: 1px solid #333 !important;
         }
 
         /* Metric Cards */
         [data-testid="stMetric"] {
-            background-color: #1E1E1E;
-            padding: 15px;
-            border-radius: 10px;
-            border: 1px solid #333;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            background-color: #1E1E1E !important;
+            padding: 15px !important;
+            border-radius: 10px !important;
+            border: 1px solid #333 !important;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
         }
         
         [data-testid="stMetricLabel"] {

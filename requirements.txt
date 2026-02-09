@@ -1,5 +1,6 @@
-streamlit
+streamlit==1.41.1
 pandas
 plotly
+requests
+numpy
 openpyxl
-matplotlib
