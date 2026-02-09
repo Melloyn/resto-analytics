@@ -38,16 +38,23 @@ def format_report(df_full, target_date):
     except:
         top_dish_day = "-"
 
+    # Russian Month Name
+    months = {
+        1: 'Январь', 2: 'Февраль', 3: 'Март', 4: 'Апрель', 5: 'Май', 6: 'Июнь',
+        7: 'Июль', 8: 'Август', 9: 'Сентябрь', 10: 'Октябрь', 11: 'Ноябрь', 12: 'Декабрь'
+    }
+    month_name = months.get(latest_date.month, str(latest_date.month))
+    
     report = f"""
 📊 **Отчет: Бар МЕСТО**
 📅 {latest_date.strftime('%d.%m.%Y')}
 
-🔹 **За день (Day):**
+🔹 **За {latest_date.strftime('%d.%m')} ({latest_date.strftime('%A')}):**
 💰 Выручка: {int(day_rev):,} ₽
 📉 Фуд-кост: {day_fc:.1f}%
 🏆 Топ: {top_dish_day}
 
-🔸 **За месяц (Month):**
+🔸 **За {month_name} ({latest_date.year}):**
 💰 Выручка: {int(month_rev):,} ₽
 📉 Фуд-кост: {month_fc:.1f}%
 💸 Себестоимость: {int(month_cost):,} ₽
