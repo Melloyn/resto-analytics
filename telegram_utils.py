@@ -14,26 +14,44 @@ def format_report(df_full, target_date):
     # let's generate a general summary for the LATEST available month.
     
     latest_date = df_full['Дата_Отчета'].max()
-    df_current = df_full[df_full['Дата_Отчета'] == latest_date]
     
-    revenue = df_current['Выручка с НДС'].sum()
-    cost = df_current['Себестоимость'].sum()
-    profit = revenue - cost
-    fc_percent = (cost / revenue * 100) if revenue > 0 else 0
+    # --- 1. DAILY STATS ---
+    df_day = df_full[df_full['Дата_Отчета'] == latest_date]
+    day_rev = df_day['Выручка с НДС'].sum()
+    day_cost = df_day['Себестоимость'].sum()
+    day_profit = day_rev - day_cost
+    day_fc = (day_cost / day_rev * 100) if day_rev > 0 else 0
+
+    # --- 2. MONTHLY STATS (Cumulative) ---
+    # Filter from 1st day of the month of the latest_date
+    start_of_month = latest_date.replace(day=1)
+    df_month = df_full[(df_full['Дата_Отчета'] >= start_of_month) & (df_full['Дата_Отчета'] <= latest_date)]
     
-    # Top Category
-    top_cat = df_current.groupby('Категория')['Выручка с НДС'].sum().idxmax()
-    
+    month_rev = df_month['Выручка с НДС'].sum()
+    month_cost = df_month['Себестоимость'].sum()
+    month_profit = month_rev - month_cost
+    month_fc = (month_cost / month_rev * 100) if month_rev > 0 else 0
+
+    # Top Dish of the Day
+    try:
+        top_dish_day = df_day.groupby('Блюдо')['Выручка с НДС'].sum().idxmax()
+    except:
+        top_dish_day = "-"
+
     report = f"""
 📊 **Отчет: Бар МЕСТО**
-📅 Дата: {latest_date.strftime('%d.%m.%Y')}
+📅 {latest_date.strftime('%d.%m.%Y')}
 
-💰 **Выручка**: {int(revenue):,} ₽
-📉 **Фуд-кост**: {fc_percent:.1f}%
-💸 **Себестоимость**: {int(cost):,} ₽
-💵 **Маржа**: {int(profit):,} ₽
+🔹 **За день (Day):**
+💰 Выручка: {int(day_rev):,} ₽
+📉 Фуд-кост: {day_fc:.1f}%
+🏆 Топ: {top_dish_day}
 
-🏆 **Топ категория**: {top_cat}
+🔸 **За месяц (Month):**
+💰 Выручка: {int(month_rev):,} ₽
+📉 Фуд-кост: {month_fc:.1f}%
+💸 Себестоимость: {int(month_cost):,} ₽
+💵 Маржа: {int(month_profit):,} ₽
     """
     return report.strip()
 
