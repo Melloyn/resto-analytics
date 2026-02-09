@@ -1,6 +1,7 @@
-streamlit==1.41.1
+streamlit
 pandas
 plotly
 requests
 numpy
 openpyxl
+pyarrow
