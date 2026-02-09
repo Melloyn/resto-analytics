@@ -8,6 +8,20 @@ import numpy as np
 from io import BytesIO
 from datetime import datetime, timedelta
 
+# --- CHART THEME ---
+def update_chart_layout(fig):
+    fig.update_layout(
+        template="plotly_dark",
+        font=dict(family="Inter", size=12),
+        margin=dict(l=20, r=20, t=40, b=20),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        hovermode="x unified",
+        xaxis=dict(showgrid=False, zeroline=False),
+        yaxis=dict(showgrid=True, gridcolor="#333", zeroline=False),
+    )
+    return fig
+
 # --- V2.1 Helper ---
 def get_secret(key):
     try:
@@ -18,6 +32,72 @@ def get_secret(key):
 # --- НАСТРОЙКИ СТРАНИЦЫ ---
 st.set_page_config(page_title="RestoAnalytics: Место", layout="wide", initial_sidebar_state="expanded")
 st.title("📊 Аналитика: Бар МЕСТО")
+
+# --- CSS STYLING ---
+def setup_style():
+    st.markdown("""
+    <style>
+        /* Import Inter Font */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
+
+        html, body, [class*="css"] {
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Sidebar Styling */
+        [data-testid="stSidebar"] {
+            background-color: #111111;
+            border-right: 1px solid #333;
+        }
+
+        /* Metric Cards */
+        [data-testid="stMetric"] {
+            background-color: #1E1E1E;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #333;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        [data-testid="stMetricLabel"] {
+            font-size: 14px;
+            color: #888;
+        }
+
+        [data-testid="stMetricValue"] {
+            font-size: 24px;
+            font-weight: 600;
+            color: #FFF;
+        }
+        
+        [data-testid="stMetricDelta"] {
+            font-size: 14px;
+        }
+
+        /* Headers */
+        h1, h2, h3 {
+            font-weight: 600;
+            letter-spacing: -0.5px;
+        }
+        
+        /* Expander Styling */
+        .streamlit-expanderHeader {
+            background-color: #1E1E1E;
+            border-radius: 5px;
+        }
+
+        /* Remove Deploy Button & Padding */
+        #MainMenu {visibility: hidden;}
+        header {visibility: hidden;}
+        .block-container {
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+        }
+        
+    </style>
+    """, unsafe_allow_html=True)
+
+setup_style()
 
 # --- ИНИЦИАЛИЗАЦИЯ ПАМЯТИ ---
 if 'df_full' not in st.session_state:
@@ -531,7 +611,7 @@ if st.session_state.df_full is not None:
                 fig_trend = px.line(item_data, x='Дата_Отчета', y='Unit_Cost', markers=True, 
                                     title=f"Динамика цены: {selected_item}",
                                     labels={'Unit_Cost': 'Цена закупки (₽)', 'Дата_Отчета': 'Дата'})
-                st.plotly_chart(fig_trend, use_container_width=True)
+                st.plotly_chart(update_chart_layout(fig_trend), use_container_width=True)
                 
                 # БЕЗОПАСНЫЙ ВЫВОД ТАБЛИЦЫ
                 cols_to_show = ['Дата_Отчета', 'Unit_Cost']
@@ -558,7 +638,7 @@ if st.session_state.df_full is not None:
                 
                 if not supplier_stats.empty:
                     fig_sup = px.bar(supplier_stats, x='Себестоимость', y='Поставщик', orientation='h', text_auto='.0s', color='Себестоимость')
-                    st.plotly_chart(fig_sup, use_container_width=True)
+                    st.plotly_chart(update_chart_layout(fig_sup), use_container_width=True)
                 else:
                     st.info("Данные по поставщикам не найдены.")
             else:
@@ -575,7 +655,7 @@ if st.session_state.df_full is not None:
             df_cat = df_view.groupby(target_cat)['Выручка с НДС'].sum().reset_index()
             fig_pie = px.pie(df_cat, values='Выручка с НДС', names=target_cat, hole=0.4)
             fig_pie.update_traces(hovertemplate='%{label}: %{value:,.0f} ₽ (%{percent})')
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(update_chart_layout(fig_pie), use_container_width=True)
         
         with c2:
             st.subheader("📊 Детальный анализ Фуд-коста")
@@ -631,7 +711,7 @@ if st.session_state.df_full is not None:
         fig_abc.update_traces(hovertemplate='<b>%{hovertext}</b><br>Продажи: %{x} шт<br>Маржа с блюда: %{y:.0f} ₽')
         fig_abc.add_vline(x=avg_qty, line_dash="dash", line_color="gray")
         fig_abc.add_hline(y=avg_margin, line_dash="dash", line_color="gray")
-        st.plotly_chart(fig_abc, use_container_width=True)
+        st.plotly_chart(update_chart_layout(fig_abc), use_container_width=True)
 
     # --- 5. ДНИ НЕДЕЛИ ---
     elif selected_tab == "🗓 Дни недели":
@@ -644,7 +724,7 @@ if st.session_state.df_full is not None:
             dow_stats['ДеньРус'] = days_rus
             fig_dow = px.bar(dow_stats, x='ДеньРус', y='Выручка с НДС', color='Выручка с НДС')
             fig_dow.update_traces(texttemplate='%{y:,.0f} ₽', textposition='auto')
-            st.plotly_chart(fig_dow, use_container_width=True)
+            st.plotly_chart(update_chart_layout(fig_dow), use_container_width=True)
         else:
             st.warning("Мало данных.")
 
@@ -752,7 +832,7 @@ if st.session_state.df_full is not None:
                 fig_comp = px.bar(df_comp, x='Показатель', y='Сумма', color='Сценарий', barmode='group', 
                                   color_discrete_map={'Было': 'gray', 'Станет': 'blue' if diff_margin >= 0 else 'red'})
                 fig_comp.update_traces(texttemplate='%{y:,.0f} ₽', textposition='auto')
-                st.plotly_chart(fig_comp, use_container_width=True)
+                st.plotly_chart(update_chart_layout(fig_comp), use_container_width=True)
                 
                 if diff_margin > 0:
                     st.success(f"🚀 Отличный сценарий! Вы заработаете на **{diff_margin:,.0f} ₽** больше.")
