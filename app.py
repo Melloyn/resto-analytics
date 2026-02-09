@@ -420,12 +420,30 @@ with st.sidebar.expander("⚙️ Загрузка данных / Правка", 
         st.session_state.df_full = None
         st.rerun()
 
+    # --- CACHE LOGIC ---
+    CACHE_FILE = "data_cache.parquet"
+
+    if st.button("🚀 Проверить и загрузить из Кеша"):
+        if os.path.exists(CACHE_FILE):
+             st.session_state.df_full = pd.read_parquet(CACHE_FILE)
+             st.success("Данные загружены из кеша (молниеносно)!")
+             st.rerun()
+        else:
+             st.warning("Кеш пуст. Загрузите данные вручную и сохраните их.")
+
     if source_mode == "Ручная загрузка":
         uploaded_files = st.file_uploader("Загрузить отчеты (CSV/Excel)", accept_multiple_files=True)
         if uploaded_files:
             temp_data = []
             for f in uploaded_files:
-                df, error, warnings = process_single_file(f, f.name)
+                df_res = process_single_file(f, f.name)
+                # handle tuple return (df, error, warnings)
+                if isinstance(df_res, tuple):
+                    df, error, warnings = df_res
+                else:
+                    df = df_res # fallback if structure changed
+                    error, warnings = None, []
+
                 if error:
                     st.warning(error)
                 else:
@@ -435,6 +453,8 @@ with st.sidebar.expander("⚙️ Загрузка данных / Правка", 
                     temp_data.append(df)
             if temp_data:
                 st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
+                st.success("Файлы обработаны!")
+                
     elif source_mode == "Яндекс.Диск":
         yandex_path = st.text_input("Папка на Диске:", "Отчеты_Ресторан")
         if st.button("🔄 Скачать отчеты"):
@@ -447,6 +467,12 @@ with st.sidebar.expander("⚙️ Загрузка данных / Правка", 
                     st.success(f"Загружено {len(temp_data)} отчетов!")
                 else:
                     st.warning("Файлов не найдено.")
+    
+    # КНОПКА СОХРАНЕНИЯ В КЕШ
+    if st.session_state.df_full is not None:
+        if st.button("💾 Сохранить в Кеш (Ускорение)"):
+            st.session_state.df_full.to_parquet(CACHE_FILE, index=False)
+            st.success("✅ Данные сохранены в кеш! Теперь перезагрузки будут мгновенными.")
     
     st.write("---")
     st.header("🗂️ Ручная правка")
