@@ -6,6 +6,7 @@ import requests
 import re
 import numpy as np
 import os
+import telegram_utils
 from io import BytesIO
 from datetime import datetime, timedelta
 
@@ -478,6 +479,27 @@ with st.sidebar.expander("⚙️ Загрузка данных / Правка", 
     st.write("---")
     st.header("🗂️ Ручная правка")
     st.info("Если автомат ошибся, загрузи исправленный список (Блюдо, Категория).")
+    
+    # --- TELEGRAM BOT ---
+    st.write("---")
+    st.header("📲 Telegram Отчет")
+    tg_token = get_secret("TELEGRAM_TOKEN")
+    tg_chat = get_secret("TELEGRAM_CHAT_ID")
+    
+    if st.button("📤 Отправить отчет в Telegram"):
+        if not tg_token or not tg_chat:
+            st.error("❌ Сначала добавьте TELEGRAM_TOKEN и TELEGRAM_CHAT_ID в Secrets!")
+        elif st.session_state.df_full is None:
+            st.warning("⚠️ Сначала загрузите данные.")
+        else:
+            with st.spinner("Формирую отчет..."):
+                target_date = datetime.now() # Или брать из фильтра, если он есть
+                report_text = telegram_utils.format_report(st.session_state.df_full, target_date)
+                success, msg = telegram_utils.send_telegram_message(tg_token, tg_chat, report_text)
+                if success:
+                    st.success(msg)
+                else:
+                    st.error(msg)
     category_file = st.file_uploader("Файл справочника", type=['csv', 'xlsx']) # Moved inside expander
 
     if st.session_state.df_full is not None and category_file is not None:
