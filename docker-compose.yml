@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  resto-analytic:
+    build: .
+    container_name: resto-analytic
+    restart: always
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./:/app
+      - ./.streamlit:/app/.streamlit
+    environment:
+      - TZ=Europe/Moscow
