@@ -55,7 +55,7 @@ def detect_category_granular(name_input):
         'белая березка 40мл': '💧 Водка', 'белуга нобл 40мл': '💧 Водка', 'белый русский': '🍹 Коктейли', 
         'берн 0,33': '🥤 Стекло/Банка Б/А', 'биттербулл': '🍹 Коктейли', 'блэк рэм 40 мл': '🥃 Виски', 
         'блэк шип 500мл': '🍺 Пиво Розлив', 'боржоми 0,5': '🥤 Стекло/Банка Б/А', 'брамбл': '🍹 Коктейли', 
-        'брум в асс. 40мл': '🌲 Джин', 'вино местное 125мл': '🍷 Вино', 'вино местное ежевичное 125мл': '🍺 Пиво Розлив', 
+        'брум в асс. 40мл': '🌲 Джин', 'вино местное 125мл': '🍷 Вино', 'вино местное ежевичное 125мл': '🍷 Вино', 
         'виски кола': '🍹 Коктейли', 'вода с лимоном': '🚰 Розлив Б/А', 'гато негро 125мл': '🍷 Вино', 
         'гленливет 12 лет 40мл': '🥃 Виски', 'глинтвей б/а': '🧉 Коктейль Б/А', 'глинтвейн': '🍹 Коктейли', 
         'глинтвейн б/а бур': '🧉 Коктейль Б/А', 'глинтвейн белый': '🍹 Коктейли', 'глинтвейн белый б/а': '🧉 Коктейль Б/А', 
@@ -152,6 +152,12 @@ def parse_russian_date(text):
     match_digit = re.search(r'(\d{2})\.(\d{2})\.(\d{4})', text)
     if match_digit:
         return datetime.strptime(match_digit.group(0), '%d.%m.%Y')
+    match_short = re.search(r'(\d{2})\.(\d{2})\.(\d{2})', text)
+    if match_short:
+        day, month, year = match_short.groups()
+        year_int = int(year)
+        year_full = 2000 + year_int if year_int < 70 else 1900 + year_int
+        return datetime(year_full, int(month), int(day))
     return None
 
 def process_single_file(file_content, filename=""):
@@ -163,7 +169,7 @@ def process_single_file(file_content, filename=""):
             if isinstance(file_content, BytesIO): file_content.seek(0)
             df_raw = pd.read_excel(file_content, header=None, nrows=10)
 
-        header_text = " ".join(df_raw.iloc[0:10, 0].astype(str).tolist())
+        header_text = " ".join(df_raw.iloc[0:10].astype(str).values.ravel())
         report_date = parse_russian_date(header_text)
         
         if not report_date:
@@ -507,7 +513,8 @@ if st.session_state.df_full is not None:
         last_30_days = df_full['Дата_Отчета'].max() - timedelta(days=30)
         df_recent = df_full[df_full['Дата_Отчета'] >= last_30_days]
         daily_sales = df_recent.groupby('Блюдо')['Количество'].sum().reset_index()
-        daily_sales['Avg_Daily_Qty'] = daily_sales['Количество'] / 30
+        days_count = max(df_recent['Дата_Отчета'].nunique(), 1)
+        daily_sales['Avg_Daily_Qty'] = daily_sales['Количество'] / days_count
         last_prices = df_full.sort_values('Дата_Отчета').groupby('Блюдо')['Unit_Cost'].last().reset_index()
         plan_df = pd.merge(daily_sales[['Блюдо', 'Avg_Daily_Qty']], last_prices, on='Блюдо')
         
