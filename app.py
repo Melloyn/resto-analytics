@@ -532,7 +532,7 @@ with st.sidebar.expander("⚙️ Загрузка данных / Правка", 
              st.warning("Кеш пуст. Загрузите данные вручную и сохраните их.")
 
     if source_mode == "Локальная папка":
-        local_path = st.text_input("Путь к папке:", "/Users/bolsbully/Desktop")
+        local_path = st.text_input("Путь к папке (для Cloud укажите '.'):", ".")
         if st.button("🚀 Сканировать папку"):
             temp_data = load_from_local_folder(local_path)
             if temp_data:
