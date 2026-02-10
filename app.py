@@ -612,8 +612,30 @@ with st.sidebar.expander("⚙️ Загрузка данных / Правка", 
                     st.error(msg)
 
 
-# --- ОСНОВНАЯ ЛОГИКА ---
-if st.session_state.df_full is not None:
+    # --- CUSTOM CATEGORY LOGIC (GLOBAL) ---
+    MAPPING_FILE = "category_mapping.json"
+
+    def load_custom_categories():
+        if os.path.exists(MAPPING_FILE):
+            try:
+                with open(MAPPING_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except: return {}
+        return {}
+
+    def save_custom_categories(new_map):
+        current_map = load_custom_categories()
+        current_map.update(new_map)
+        with open(MAPPING_FILE, 'w', encoding='utf-8') as f:
+            json.dump(current_map, f, ensure_ascii=False, indent=4)
+
+    # Load and Apply Custom Categories globally to df_full
+    if st.session_state.df_full is not None:
+        custom_cats = load_custom_categories()
+        if custom_cats:
+            st.session_state.df_full['Категория'] = st.session_state.df_full.apply(
+                lambda x: custom_cats.get(x['Блюдо'], x['Категория']), axis=1
+            )
 
     # --- СЕЛЕКТОР ЗАВЕДЕНИЯ (VENUE) ---
     selected_venue = "Все заведения"
@@ -909,7 +931,7 @@ if st.session_state.df_full is not None:
         
         # Find items in "Other" based on current df_items (which is scoped by date/venue)
         # OR better: use global df_full to find ALL unmapped items to fix them once
-        other_items_global = df_full[df_full['Категория'] == '📦 Прочее']['Блюдо'].unique()
+        other_items_global = st.session_state.df_full[st.session_state.df_full['Категория'] == '📦 Прочее']['Блюдо'].unique()
         
         if len(other_items_global) > 0:
             st.warning(f"Найдено {len(other_items_global)} блюд в категории 'Прочее'. Давайте их распределим!")
@@ -921,7 +943,7 @@ if st.session_state.df_full is not None:
                 "🍏 Сидр ШТ", "🍾 Пиво ШТ", "🥃 Виски", "💧 Водка", "🏴‍☠️ Ром", 
                 "🌵 Текила", "🌲 Джин", "🍇 Коньяк/Бренди", "🍒 Ликер/Настойка", "🍬 Доп. ингредиенты"
             ]
-            existing_cats = [c for c in df_full['Категория'].unique() if c != '📦 Прочее']
+            existing_cats = [c for c in st.session_state.df_full['Категория'].unique() if c != '📦 Прочее']
             all_options = sorted(list(set(standard_cats + existing_cats)))
 
             # 2. Prepare Data for Editor
@@ -955,6 +977,7 @@ if st.session_state.df_full is not None:
                     # Placeholder for actual save/load logic if not defined:
                     # save_custom_categories(new_map) 
                     # st.session_state.custom_cats = load_custom_categories() 
+                    save_custom_categories(new_map)
                     st.cache_data.clear()
                     st.success(f"✅ Сохранено {len(new_map)} исправлений! Перезагружаю...")
                     st.rerun()
