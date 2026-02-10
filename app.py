@@ -772,7 +772,13 @@ if st.session_state.df_full is not None:
     if selected_tab == "🔥 Инфляция":
         st.subheader(f"🔥 Инфляционный Трекер (по состоянию на {target_date.strftime('%d.%m.%Y')})")
         
-        df_inflation_scope = df_full[df_full['Дата_Отчета'] <= target_date]
+        # Ensure target_date is datetime for comparison
+        if isinstance(target_date, datetime):
+             target_ts = target_date
+        else:
+             target_ts = pd.to_datetime(target_date)
+
+        df_inflation_scope = df_full[df_full['Дата_Отчета'] <= target_ts]
         price_history = df_inflation_scope.groupby(['Блюдо', 'Дата_Отчета'])['Unit_Cost'].mean().reset_index()
         unique_items = price_history['Блюдо'].unique()
         inflation_data = []
