@@ -511,105 +511,86 @@ def load_from_local_folder(root_path):
         st.error(f"Error loading local files: {e}")
         return []
 
-# --- ИНТЕРФЕЙС ЗАГРУЗКИ (Свернутый) ---
-with st.sidebar.expander("⚙️ Загрузка данных / Правка", expanded=True):
+# --- 1. SIDEBAR: DATA LOADING ---
+with st.sidebar:
+    st.title("🎛 Меню")
+    
+    # Источник данных
     st.header("📂 1. Источник данных")
-    
-    # Default to Yandex Disk, hide others
-    source_mode = "Яндекс.Диск"
-    
-    # Yandex Disk UI (Primary)
+    source_mode = st.radio("Режим:", ["Яндекс.Диск", "Локальная папка", "Ручная загрузка"], label_visibility="collapsed")
+
+    # --- YANDEX DISK ---
     if source_mode == "Яндекс.Диск":
         yandex_path = st.text_input("Папка на Диске:", "RestoAnalytic")
-        if st.button("� Скачать отчеты", type="primary"):
+        if st.button("🚀 Скачать отчеты", type="primary", use_container_width=True):
             if not get_secret("YANDEX_TOKEN"):
-                 st.error("⚠️ Нет токена в Secrets (локально или в облаке)!")
+                 st.error("⚠️ Нет токена!")
             else:
                 temp_data = load_all_from_yandex(yandex_path)
                 if temp_data:
                     st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
                     st.success(f"Загружено {len(temp_data)} отчетов!")
+                    st.rerun()
                 else:
                     st.warning("Файлов не найдено.")
 
-    # Advanced / Legacy Options
-    with st.expander("🛠 Расширенные настройки (Локально/Ручная)"):
-        adv_source = st.radio("Альтернативный источник:", ["Нет", "Локальная папка", "Ручная загрузка"])
+    # --- LOCAL FOLDER ---
+    elif source_mode == "Локальная папка":
+        local_path = st.text_input("Путь к папке:", ".")
+        if st.button("� Сканировать папку", type="primary", use_container_width=True):
+            temp_data = load_from_local_folder(local_path)
+            if temp_data:
+                st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
+                st.success(f"Загружено {len(temp_data)} отчетов!")
+                st.rerun()
+            else:
+                st.warning("Файлов не найдено.")
+
+    # --- MANUAL UPLOAD ---
+    elif source_mode == "Ручная загрузка":
+        uploaded_files = st.file_uploader("Загрузить (CSV/Excel)", accept_multiple_files=True)
+        if uploaded_files and st.button("📥 Обработать файлы", type="primary", use_container_width=True):
+            temp_data = []
+            for f in uploaded_files:
+                df_res = process_single_file(f, f.name)
+                if isinstance(df_res, tuple):
+                    df, error, warnings = df_res
+                else:
+                    df = df_res 
+                    error, warnings = None, []
+
+                if error: st.warning(error)
+                for w in warnings: st.warning(w)
+                if df is not None: temp_data.append(df)
+            
+            if temp_data:
+                st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
+                st.success("Файлы обработаны!")
+                st.rerun()
+
+    # --- ADVANCED OPTIONS (Cache, Reset) ---
+    with st.expander("⚙️ Технические опции"):
+        CACHE_FILE = "data_cache.parquet"
         
-        if adv_source == "Локальная папка":
-            local_path = st.text_input("Путь к папке (для Cloud укажите '.'):", ".")
-            if st.button("🚀 Сканировать папку"):
-                temp_data = load_from_local_folder(local_path)
-                if temp_data:
-                    st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
-                    st.success(f"Загружено {len(temp_data)} отчетов!")
-                else:
-                    st.warning("Файлов не найдено.")
+        if st.button("� Сохранить в Кеш"):
+            if st.session_state.df_full is not None:
+                st.session_state.df_full.to_parquet(CACHE_FILE, index=False)
+                st.success("Сохранено!")
+            else:
+                st.warning("Нет данных.")
 
-        elif adv_source == "Ручная загрузка":
-            uploaded_files = st.file_uploader("Загрузить отчеты (CSV/Excel)", accept_multiple_files=True)
-            if uploaded_files:
-                temp_data = []
-                for f in uploaded_files:
-                    df_res = process_single_file(f, f.name)
-                    if isinstance(df_res, tuple):
-                        df, error, warnings = df_res
-                    else:
-                        df = df_res 
-                        error, warnings = None, []
-
-                    if error:
-                        st.warning(error)
-                    else:
-                        for warning in warnings:
-                            st.warning(warning)
-                    if df is not None:
-                        temp_data.append(df)
-                if temp_data:
-                    st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
-                    st.success("Файлы обработаны!")
-
-        if st.button("� Сбросить все данные"):
+        if st.button("🚀 Загрузить из Кеша"):
+            if os.path.exists(CACHE_FILE):
+                 st.session_state.df_full = pd.read_parquet(CACHE_FILE)
+                 st.success("Загружено из кеша!")
+                 st.rerun()
+            else:
+                 st.warning("Кеш пуст.")
+        
+        if st.button("🗑 Сбросить все данные"):
             st.cache_data.clear()
             st.session_state.df_full = None
             st.rerun()
-
-    # --- CACHE LOGIC ---
-    CACHE_FILE = "data_cache.parquet"
-
-    if st.button("🚀 Проверить и загрузить из Кеша"):
-        if os.path.exists(CACHE_FILE):
-             st.session_state.df_full = pd.read_parquet(CACHE_FILE)
-             st.success("Данные загружены из кеша (молниеносно)!")
-             st.rerun()
-        else:
-             st.warning("Кеш пуст. Загрузите данные вручную и сохраните их.")
-    
-    # КНОПКА СОХРАНЕНИЯ В КЕШ
-    if st.session_state.df_full is not None:
-        if st.button("💾 Сохранить в Кеш (Ускорение)"):
-            st.session_state.df_full.to_parquet(CACHE_FILE, index=False)
-            st.success("✅ Данные сохранены в кеш! Теперь перезагрузки будут мгновенными.")
-    
-    # --- TELEGRAM BOT ---
-    st.header("📲 Telegram Отчет")
-    tg_token = get_secret("TELEGRAM_TOKEN")
-    tg_chat = get_secret("TELEGRAM_CHAT_ID")
-    
-    if st.button("📤 Отправить отчет в Telegram"):
-        if not tg_token or not tg_chat:
-            st.error("❌ Сначала добавьте TELEGRAM_TOKEN и TELEGRAM_CHAT_ID в Secrets!")
-        elif st.session_state.df_full is None:
-            st.warning("⚠️ Сначала загрузите данные.")
-        else:
-            with st.spinner("Формирую отчет..."):
-                target_date = datetime.now() # Или брать из фильтра, если он есть
-                report_text = telegram_utils.format_report(st.session_state.df_full, target_date)
-                success, msg = telegram_utils.send_to_all(tg_token, tg_chat, report_text)
-                if success:
-                    st.success(msg)
-                else:
-                    st.error(msg)
 
 
 # --- CUSTOM CATEGORY LOGIC (GLOBAL) ---
@@ -644,14 +625,96 @@ if st.session_state.df_full is not None:
 # --- ОСНОВНАЯ ЛОГИКА ---
 if st.session_state.df_full is not None:
 
-    # --- СЕЛЕКТОР ЗАВЕДЕНИЯ (VENUE) ---
+    # --- SIDEBAR: FILTERS ---
+    st.sidebar.divider()
+    st.sidebar.header("🔍 Фильтры")
+
+    # 1. VENUE SELECTOR
     selected_venue = "Все заведения"
     if 'Venue' in st.session_state.df_full.columns:
         unique_venues = sorted(st.session_state.df_full['Venue'].astype(str).unique())
         if len(unique_venues) > 1 or (len(unique_venues) == 1 and unique_venues[0] != 'nan'):
-             st.sidebar.markdown("---")
-             st.sidebar.header("🏢 Заведение")
-             selected_venue = st.sidebar.selectbox("Выберите точку:", ["Все заведения"] + unique_venues)
+             selected_venue = st.sidebar.selectbox("🏠 Заведение:", ["Все заведения"] + unique_venues)
+
+    # ЛЕЧЕНИЕ ДАННЫХ В ПАМЯТИ (Если вдруг нет колонки)
+    if 'Поставщик' not in st.session_state.df_full.columns:
+        st.session_state.df_full['Поставщик'] = 'Не указан'
+
+    # ФИЛЬТРАЦИЯ
+    if selected_venue != "Все заведения":
+        df_full = st.session_state.df_full[st.session_state.df_full['Venue'] == selected_venue].copy()
+    else:
+        df_full = st.session_state.df_full.copy()
+    
+    # MACRO
+    df_full['Макро_Категория'] = df_full['Категория'].apply(get_macro_category)
+
+    # 2. PERIOD SELECTOR
+    st.sidebar.subheader("🗓 Период")
+    
+    # Выбор режима: Месяц (для KPI/MoM) или Произвольный (для детального анализа)
+    period_mode = st.sidebar.radio("Режим:", ["📅 Месяц (Сравнение)", "📆 Интервал дат"], label_visibility="collapsed", horizontal=True)
+    
+    df_current = pd.DataFrame()
+    df_prev = pd.DataFrame()
+    prev_label = ""
+    target_date = datetime.now()
+    
+    if period_mode == "📅 Месяц (Сравнение)":
+        df_full['Month_Year'] = df_full['Дата_Отчета'].dt.to_period('M')
+        available_months = sorted(df_full['Month_Year'].unique(), reverse=True)
+        
+        if available_months:
+            selected_month = st.sidebar.selectbox("Выбери месяц:", available_months, format_func=lambda x: x.strftime('%B %Y'))
+            compare_options = ["Предыдущий месяц", "Тот же месяц (год назад)", "Нет"]
+            compare_mode = st.sidebar.selectbox("Сравнить с:", compare_options)
+            
+            # Текущий
+            df_current = df_full[df_full['Month_Year'] == selected_month]
+            target_date = df_current['Дата_Отчета'].max()
+            
+            # Сравнение
+            if compare_mode == "Предыдущий месяц":
+                prev_month = selected_month - 1
+                df_prev = df_full[df_full['Month_Year'] == prev_month]
+                prev_label = prev_month.strftime('%B %Y')
+            elif compare_mode == "Тот же месяц (год назад)":
+                prev_month = selected_month - 12
+                df_prev = df_full[df_full['Month_Year'] == prev_month]
+                prev_label = prev_month.strftime('%B %Y')
+    else:
+        # Режим ИНТЕРВАЛ
+        min_date = df_full['Дата_Отчета'].min().date()
+        max_date = df_full['Дата_Отчета'].max().date()
+        date_range = st.sidebar.date_input("Выберите даты:", value=(min_date, max_date), min_value=min_date, max_value=max_date)
+        
+        if isinstance(date_range, tuple) and len(date_range) == 2:
+            start_d, end_d = date_range
+            df_current = df_full[(df_full['Дата_Отчета'].dt.date >= start_d) & (df_full['Дата_Отчета'].dt.date <= end_d)]
+            target_date = end_d
+            prev_label = "Сравнение недоступно в режиме интервала"
+            compare_mode = "Нет" # Для графика
+        else:
+            st.warning("Выберите корректный интервал")
+
+    # --- SIDEBAR: ACTIONS (TELEGRAM) ---
+    st.sidebar.divider()
+    st.sidebar.header("⚡ Действия")
+    tg_token = get_secret("TELEGRAM_TOKEN")
+    tg_chat = get_secret("TELEGRAM_CHAT_ID")
+    
+    if st.sidebar.button("📤 Отправить отчет в Telegram", use_container_width=True):
+        if not tg_token or not tg_chat:
+            st.sidebar.error("❌ Нет токена/чата!")
+        elif st.session_state.df_full is None:
+            st.sidebar.warning("⚠️ Нет данных.")
+        else:
+            with st.spinner("Формирую отчет..."):
+                # Use target_date from filter logic
+                report_text = telegram_utils.format_report(st.session_state.df_full, target_date)
+                success, msg = telegram_utils.send_to_all(tg_token, tg_chat, report_text)
+                if success: st.sidebar.success("Отправлено!")
+                else: st.sidebar.error(msg)
 
     # ЛЕЧЕНИЕ ДАННЫХ В ПАМЯТИ (Если вдруг нет колонки)
     if 'Поставщик' not in st.session_state.df_full.columns:
