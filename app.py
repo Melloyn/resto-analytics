@@ -636,6 +636,10 @@ if st.session_state.df_full is not None:
         st.session_state.df_full['Категория'] = st.session_state.df_full.apply(
             lambda x: custom_cats.get(x['Блюдо'], x['Категория']), axis=1
         )
+        
+        # --- GLOBAL FILTER: DELETE IGNORED ITEMS ---
+        # Remove rows where category is "⛔ Исключить из отчетов"
+        st.session_state.df_full = st.session_state.df_full[st.session_state.df_full['Категория'] != "⛔ Исключить из отчетов"]
 
 # --- ОСНОВНАЯ ЛОГИКА ---
 if st.session_state.df_full is not None:
@@ -941,6 +945,7 @@ if st.session_state.df_full is not None:
             
             # 1. Prepare Categories List
             standard_cats = [
+                "⛔ Исключить из отчетов", # NEW: Special category to hide item
                 "🍔 Еда (Кухня)", "🍹 Коктейли", "☕ Кофе", "🍵 Чай", "🍺 Пиво Розлив", "🛁 Водка", 
                 "🍷 Вино", "🥤 Стекло/Банка Б/А", "🚰 Розлив Б/А", "🍓 Милк/Фреш/Смузи", 
                 "🍏 Сидр ШТ", "🍾 Пиво ШТ", "🥃 Виски", "💧 Водка", "🏴‍☠️ Ром", 
