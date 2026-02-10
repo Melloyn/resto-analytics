@@ -45,30 +45,42 @@ def setup_style():
 
         html, body, [class*="css"] {
             font-family: 'Inter', sans-serif;
+            background-color: #0e1117; /* Dark background base */
         }
 
-        /* Sidebar Styling */
+        /* --- GLASSMORPHISM SIDEBAR --- */
         [data-testid="stSidebar"] {
-            background-color: #111111 !important;
-            border-right: 1px solid #333 !important;
+            background-color: rgba(17, 17, 17, 0.7) !important;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
         }
 
-        /* Metric Cards */
+        /* --- GLASS METRIC CARDS --- */
         [data-testid="stMetric"] {
-            background-color: #1E1E1E !important;
+            background: rgba(30, 30, 30, 0.6) !important;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
             padding: 15px !important;
-            border-radius: 10px !important;
-            border: 1px solid #333 !important;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+            border-radius: 12px !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2) !important;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
         
+        [data-testid="stMetric"]:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3) !important;
+            border: 1px solid rgba(255, 255, 255, 0.15) !important;
+        }
+
         [data-testid="stMetricLabel"] {
             font-size: 14px;
-            color: #888;
+            color: rgba(255, 255, 255, 0.6);
         }
 
         [data-testid="stMetricValue"] {
-            font-size: 24px;
+            font-size: 26px;
             font-weight: 600;
             color: #FFF;
         }
@@ -77,16 +89,25 @@ def setup_style():
             font-size: 14px;
         }
 
-        /* Headers */
+        /* --- HEADERS & TEXT --- */
         h1, h2, h3 {
             font-weight: 600;
             letter-spacing: -0.5px;
+            color: #FFF;
         }
         
-        /* Expander Styling */
+        /* --- EXPANDER STYLING (GLASS) --- */
         .streamlit-expanderHeader {
-            background-color: #1E1E1E;
-            border-radius: 5px;
+            background-color: rgba(30, 30, 30, 0.5);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        /* --- BUTTONS (Optional Polish) --- */
+        button[kind="primary"] {
+            background: linear-gradient(135deg, #FF4B4B 0%, #FF2B2B 100%);
+            border: none;
+            box-shadow: 0 4px 12px rgba(255, 75, 75, 0.3);
         }
 
         /* Remove Deploy Button & Padding */
