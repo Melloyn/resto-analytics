@@ -649,6 +649,8 @@ if st.session_state.df_full is not None:
     # MACRO
     df_full['Макро_Категория'] = df_full['Категория'].apply(get_macro_category)
 
+    dates_list = sorted(df_full['Дата_Отчета'].unique(), reverse=True)
+
     # 2. PERIOD SELECTOR
     st.sidebar.subheader("🗓 Период")
     
@@ -715,72 +717,6 @@ if st.session_state.df_full is not None:
                 success, msg = telegram_utils.send_to_all(tg_token, tg_chat, report_text)
                 if success: st.sidebar.success("Отправлено!")
                 else: st.sidebar.error(msg)
-
-    # ЛЕЧЕНИЕ ДАННЫХ В ПАМЯТИ (Если вдруг нет колонки)
-    if 'Поставщик' not in st.session_state.df_full.columns:
-        st.session_state.df_full['Поставщик'] = 'Не указан'
-
-    # ФИЛЬТРАЦИЯ
-    if selected_venue != "Все заведения":
-        df_full = st.session_state.df_full[st.session_state.df_full['Venue'] == selected_venue].copy()
-    else:
-        df_full = st.session_state.df_full.copy()
-    df_full['Макро_Категория'] = df_full['Категория'].apply(get_macro_category)
-    
-    df_full['Макро_Категория'] = df_full['Категория'].apply(get_macro_category)
-    
-    # Кнопка скачивания moved to Settings expander
-
-    dates_list = sorted(df_full['Дата_Отчета'].unique(), reverse=True)
-    
-    # --- СЕЛЕКТОР ПЕРИОДОВ ---
-    st.sidebar.write("---")
-    st.sidebar.header("🗓 Период Анализа")
-    
-    # Выбор режима: Месяц (для KPI/MoM) или Произвольный (для детального анализа)
-    period_mode = st.sidebar.radio("Режим:", ["📅 Месяц (Сравнение)", "📆 Интервал дат"], label_visibility="collapsed", horizontal=True)
-    
-    df_current = pd.DataFrame()
-    df_prev = pd.DataFrame()
-    prev_label = ""
-    target_date = datetime.now()
-    
-    if period_mode == "📅 Месяц (Сравнение)":
-        df_full['Month_Year'] = df_full['Дата_Отчета'].dt.to_period('M')
-        available_months = sorted(df_full['Month_Year'].unique(), reverse=True)
-        
-        if available_months:
-            selected_month = st.sidebar.selectbox("Выбери месяц:", available_months, format_func=lambda x: x.strftime('%B %Y'))
-            compare_options = ["Предыдущий месяц", "Тот же месяц (год назад)", "Нет"]
-            compare_mode = st.sidebar.selectbox("Сравнить с:", compare_options)
-            
-            # Текущий
-            df_current = df_full[df_full['Month_Year'] == selected_month]
-            target_date = df_current['Дата_Отчета'].max()
-            
-            # Сравнение
-            if compare_mode == "Предыдущий месяц":
-                prev_month = selected_month - 1
-                df_prev = df_full[df_full['Month_Year'] == prev_month]
-                prev_label = prev_month.strftime('%B %Y')
-            elif compare_mode == "Тот же месяц (год назад)":
-                prev_month = selected_month - 12
-                df_prev = df_full[df_full['Month_Year'] == prev_month]
-                prev_label = prev_month.strftime('%B %Y')
-    else:
-        # Режим ИНТЕРВАЛ
-        min_date = df_full['Дата_Отчета'].min().date()
-        max_date = df_full['Дата_Отчета'].max().date()
-        date_range = st.sidebar.date_input("Выберите даты:", value=(min_date, max_date), min_value=min_date, max_value=max_date)
-        
-        if isinstance(date_range, tuple) and len(date_range) == 2:
-            start_d, end_d = date_range
-            df_current = df_full[(df_full['Дата_Отчета'].dt.date >= start_d) & (df_full['Дата_Отчета'].dt.date <= end_d)]
-            target_date = end_d
-            prev_label = "Сравнение недоступно в режиме интервала"
-            compare_mode = "Нет" # Для графика
-        else:
-            st.warning("Выберите корректный интервал")
 
     # --- KPI DISPLAY ---
     if not df_current.empty:
