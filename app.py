@@ -58,20 +58,21 @@ def setup_style():
 
         /* --- GLASS METRIC CARDS --- */
         [data-testid="stMetric"] {
-            background: rgba(30, 30, 30, 0.6) !important;
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
+            background: rgba(45, 45, 45, 0.4) !important; /* Lighter tint */
+            backdrop-filter: blur(18px); /* Deeper blur */
+            -webkit-backdrop-filter: blur(18px);
             padding: 15px !important;
-            border-radius: 12px !important;
-            border: 1px solid rgba(255, 255, 255, 0.08) !important;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2) !important;
+            border-radius: 16px !important; /* More iOS-like */
+            border: 1px solid rgba(255, 255, 255, 0.15) !important; /* Stronger border */
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37) !important; /* Deeper shadow */
             transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
         
         [data-testid="stMetric"]:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3) !important;
-            border: 1px solid rgba(255, 255, 255, 0.15) !important;
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5) !important;
+            border: 1px solid rgba(255, 255, 255, 0.25) !important;
+            background: rgba(60, 60, 60, 0.5) !important;
         }
 
         [data-testid="stMetricLabel"] {
