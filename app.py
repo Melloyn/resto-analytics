@@ -512,14 +512,67 @@ def load_from_local_folder(root_path):
         return []
 
 # --- ИНТЕРФЕЙС ЗАГРУЗКИ (Свернутый) ---
-with st.sidebar.expander("⚙️ Загрузка данных / Правка", expanded=False):
+with st.sidebar.expander("⚙️ Загрузка данных / Правка", expanded=True):
     st.header("📂 1. Источник данных")
-    source_mode = st.radio("Откуда берем отчеты?", ["Локальная папка", "Яндекс.Диск", "Ручная загрузка"])
+    
+    # Default to Yandex Disk, hide others
+    source_mode = "Яндекс.Диск"
+    
+    # Yandex Disk UI (Primary)
+    if source_mode == "Яндекс.Диск":
+        yandex_path = st.text_input("Папка на Диске:", "RestoAnalytic")
+        if st.button("� Скачать отчеты", type="primary"):
+            if not get_secret("YANDEX_TOKEN"):
+                 st.error("⚠️ Нет токена в Secrets (локально или в облаке)!")
+            else:
+                temp_data = load_all_from_yandex(yandex_path)
+                if temp_data:
+                    st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
+                    st.success(f"Загружено {len(temp_data)} отчетов!")
+                else:
+                    st.warning("Файлов не найдено.")
 
-    if st.button("🗑 Сбросить все данные"):
-        st.cache_data.clear()
-        st.session_state.df_full = None
-        st.rerun()
+    # Advanced / Legacy Options
+    with st.expander("🛠 Расширенные настройки (Локально/Ручная)"):
+        adv_source = st.radio("Альтернативный источник:", ["Нет", "Локальная папка", "Ручная загрузка"])
+        
+        if adv_source == "Локальная папка":
+            local_path = st.text_input("Путь к папке (для Cloud укажите '.'):", ".")
+            if st.button("🚀 Сканировать папку"):
+                temp_data = load_from_local_folder(local_path)
+                if temp_data:
+                    st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
+                    st.success(f"Загружено {len(temp_data)} отчетов!")
+                else:
+                    st.warning("Файлов не найдено.")
+
+        elif adv_source == "Ручная загрузка":
+            uploaded_files = st.file_uploader("Загрузить отчеты (CSV/Excel)", accept_multiple_files=True)
+            if uploaded_files:
+                temp_data = []
+                for f in uploaded_files:
+                    df_res = process_single_file(f, f.name)
+                    if isinstance(df_res, tuple):
+                        df, error, warnings = df_res
+                    else:
+                        df = df_res 
+                        error, warnings = None, []
+
+                    if error:
+                        st.warning(error)
+                    else:
+                        for warning in warnings:
+                            st.warning(warning)
+                    if df is not None:
+                        temp_data.append(df)
+                if temp_data:
+                    st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
+                    st.success("Файлы обработаны!")
+
+        if st.button("� Сбросить все данные"):
+            st.cache_data.clear()
+            st.session_state.df_full = None
+            st.rerun()
 
     # --- CACHE LOGIC ---
     CACHE_FILE = "data_cache.parquet"
@@ -531,53 +584,6 @@ with st.sidebar.expander("⚙️ Загрузка данных / Правка", 
              st.rerun()
         else:
              st.warning("Кеш пуст. Загрузите данные вручную и сохраните их.")
-
-    if source_mode == "Локальная папка":
-        local_path = st.text_input("Путь к папке (для Cloud укажите '.'):", ".")
-        if st.button("🚀 Сканировать папку"):
-            temp_data = load_from_local_folder(local_path)
-            if temp_data:
-                st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
-                st.success(f"Загружено {len(temp_data)} отчетов!")
-            else:
-                st.warning("Файлов не найдено.")
-
-    if source_mode == "Ручная загрузка":
-        uploaded_files = st.file_uploader("Загрузить отчеты (CSV/Excel)", accept_multiple_files=True)
-        if uploaded_files:
-            temp_data = []
-            for f in uploaded_files:
-                df_res = process_single_file(f, f.name)
-                # handle tuple return (df, error, warnings)
-                if isinstance(df_res, tuple):
-                    df, error, warnings = df_res
-                else:
-                    df = df_res # fallback if structure changed
-                    error, warnings = None, []
-
-                if error:
-                    st.warning(error)
-                else:
-                    for warning in warnings:
-                        st.warning(warning)
-                if df is not None:
-                    temp_data.append(df)
-            if temp_data:
-                st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
-                st.success("Файлы обработаны!")
-                
-    elif source_mode == "Яндекс.Диск":
-        yandex_path = st.text_input("Папка на Диске:", "RestoAnalytic")
-        if st.button("🔄 Скачать отчеты"):
-            if not get_secret("YANDEX_TOKEN"):
-                 st.error("⚠️ Нет токена в Secrets (локально или в облаке)!")
-            else:
-                temp_data = load_all_from_yandex(yandex_path)
-                if temp_data:
-                    st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
-                    st.success(f"Загружено {len(temp_data)} отчетов!")
-                else:
-                    st.warning("Файлов не найдено.")
     
     # КНОПКА СОХРАНЕНИЯ В КЕШ
     if st.session_state.df_full is not None:
@@ -585,7 +591,6 @@ with st.sidebar.expander("⚙️ Загрузка данных / Правка", 
             st.session_state.df_full.to_parquet(CACHE_FILE, index=False)
             st.success("✅ Данные сохранены в кеш! Теперь перезагрузки будут мгновенными.")
     
-    st.write("---")
     st.write("---")
     st.header("🗂️ Аудит категорий (Что попало в 'Прочее')")
     
@@ -658,10 +663,27 @@ with st.sidebar.expander("⚙️ Загрузка данных / Правка", 
 
 
     st.write("---")
-    # Кнопка скачивания общей базы (moved here)
-    if st.session_state.df_full is not None:
-        csv = st.session_state.df_full.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 Скачать базу (CSV)", csv, f"Analytics_{datetime.now().date()}.csv", "text/csv")
+    
+    # --- TELEGRAM BOT ---
+    st.header("📲 Telegram Отчет")
+    tg_token = get_secret("TELEGRAM_TOKEN")
+    tg_chat = get_secret("TELEGRAM_CHAT_ID")
+    
+    if st.button("📤 Отправить отчет в Telegram"):
+        if not tg_token or not tg_chat:
+            st.error("❌ Сначала добавьте TELEGRAM_TOKEN и TELEGRAM_CHAT_ID в Secrets!")
+        elif st.session_state.df_full is None:
+            st.warning("⚠️ Сначала загрузите данные.")
+        else:
+            with st.spinner("Формирую отчет..."):
+                target_date = datetime.now() # Или брать из фильтра, если он есть
+                report_text = telegram_utils.format_report(st.session_state.df_full, target_date)
+                success, msg = telegram_utils.send_to_all(tg_token, tg_chat, report_text)
+                if success:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+
 
 # --- ОСНОВНАЯ ЛОГИКА ---
 if st.session_state.df_full is not None:
