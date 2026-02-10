@@ -418,29 +418,102 @@ def load_all_from_yandex(root_path):
         
         all_dfs = []
         
-        # 2. Process Root Files -> Venue = 'General'
+        # 2. Process Root Files -> Venue = 'Mesto'
         if root_files:
-             all_dfs.extend(process_items(root_files, 'General'))
+             all_dfs.extend(process_items(root_files, 'Mesto'))
 
-        # 3. Process Subfolders -> Venue = Folder Name
+        # 3. Recursive Process Subfolders
+        def get_files_recursive(path):
+            all_files_in_path = []
+            try:
+                p = {'path': path, 'limit': 1000}
+                r = requests.get(api_url, headers=headers, params=p, timeout=20)
+                if r.status_code == 200:
+                    emb = r.json().get('_embedded', {})
+                    itms = emb.get('items', [])
+                    
+                    # Files in this dir
+                    files = [i for i in itms if i['type'] == 'file' and (i['name'].endswith('.xlsx') or i['name'].endswith('.csv'))]
+                    all_files_in_path.extend(files)
+                    
+                    # Subdirs to recurse
+                    dirs = [i for i in itms if i['type'] == 'dir']
+                    for d in dirs:
+                        all_files_in_path.extend(get_files_recursive(d['path']))
+            except: pass
+            return all_files_in_path
+
         for folder in folders:
-            sub_params = {'path': folder['path'], 'limit': 1000}
-            sub_resp = requests.get(api_url, headers=headers, params=sub_params, timeout=20)
-            if sub_resp.status_code == 200:
-                sub_items = sub_resp.json().get('_embedded', {}).get('items', [])
-                sub_files = [i for i in sub_items if i['type'] == 'file' and (i['name'].endswith('.xlsx') or i['name'].endswith('.csv'))]
-                if sub_files:
-                    all_dfs.extend(process_items(sub_files, folder['name']))
+            venue_name = folder['name']
+            # Get all files recursively
+            venue_files = get_files_recursive(folder['path'])
+            
+            if venue_files:
+                all_dfs.extend(process_items(venue_files, venue_name))
         
         return all_dfs
     except Exception as e:
         st.error(f"Error loading from Yandex: {e}")
         return []
 
+def load_from_local_folder(root_path):
+    all_dfs = []
+    
+    # helper to process a list of files
+    def process_local_files(files, venue_tag):
+        processed = []
+        for file_path in files:
+            try:
+                # Read file content
+                with open(file_path, 'rb') as f:
+                    content = BytesIO(f.read())
+                
+                filename = os.path.basename(file_path)
+                df, error, warnings = process_single_file(content, filename=filename)
+                
+                if error:
+                    st.warning(f"{filename}: {error}")
+                if df is not None:
+                    df['Venue'] = venue_tag
+                    processed.append(df)
+            except Exception as e:
+                st.warning(f"Error reading {file_path}: {e}")
+        return processed
+
+    try:
+        if not os.path.exists(root_path):
+            st.error(f"Папка не найдена: {root_path}")
+            return []
+
+        # 1. Walk through directory
+        for root, dirs, files in os.walk(root_path):
+            # Determine Venue from folder name relative to root_path
+            rel_path = os.path.relpath(root, root_path)
+            
+            if rel_path == ".":
+                venue_name = "Mesto" # Default for root
+            else:
+                # Use the first level folder as Venue Name
+                # e.g. root/barmesto/2026 -> venue = barmesto
+                parts = rel_path.split(os.sep)
+                venue_name = parts[0]
+            
+            # Filter for Excel/CSV
+            target_files = [os.path.join(root, f) for f in files if f.endswith(('.xlsx', '.csv')) and not f.startswith('~$')]
+            
+            if target_files:
+                st.write(f"📂 Scanning {venue_name} ({len(target_files)} files)...")
+                all_dfs.extend(process_local_files(target_files, venue_name))
+
+        return all_dfs
+    except Exception as e:
+        st.error(f"Error loading local files: {e}")
+        return []
+
 # --- ИНТЕРФЕЙС ЗАГРУЗКИ (Свернутый) ---
 with st.sidebar.expander("⚙️ Загрузка данных / Правка", expanded=False):
     st.header("📂 1. Источник данных")
-    source_mode = st.radio("Откуда берем отчеты?", ["Яндекс.Диск", "Ручная загрузка"])
+    source_mode = st.radio("Откуда берем отчеты?", ["Локальная папка", "Яндекс.Диск", "Ручная загрузка"])
 
     if st.button("🗑 Сбросить все данные"):
         st.cache_data.clear()
@@ -457,6 +530,16 @@ with st.sidebar.expander("⚙️ Загрузка данных / Правка", 
              st.rerun()
         else:
              st.warning("Кеш пуст. Загрузите данные вручную и сохраните их.")
+
+    if source_mode == "Локальная папка":
+        local_path = st.text_input("Путь к папке:", ".")
+        if st.button("📂 Сканировать папку"):
+            temp_data = load_from_local_folder(local_path)
+            if temp_data:
+                st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
+                st.success(f"Загружено {len(temp_data)} отчетов!")
+            else:
+                st.warning("Файлов не найдено.")
 
     if source_mode == "Ручная загрузка":
         uploaded_files = st.file_uploader("Загрузить отчеты (CSV/Excel)", accept_multiple_files=True)
@@ -483,7 +566,7 @@ with st.sidebar.expander("⚙️ Загрузка данных / Правка", 
                 st.success("Файлы обработаны!")
                 
     elif source_mode == "Яндекс.Диск":
-        yandex_path = st.text_input("Папка на Диске:", "Отчеты_Ресторан")
+        yandex_path = st.text_input("Папка на Диске:", "RestoAnalytic")
         if st.button("🔄 Скачать отчеты"):
             if not get_secret("YANDEX_TOKEN"):
                  st.error("⚠️ Нет токена в Secrets (локально или в облаке)!")
@@ -549,11 +632,25 @@ with st.sidebar.expander("⚙️ Загрузка данных / Правка", 
 
 # --- ОСНОВНАЯ ЛОГИКА ---
 if st.session_state.df_full is not None:
+
+    # --- СЕЛЕКТОР ЗАВЕДЕНИЯ (VENUE) ---
+    selected_venue = "Все заведения"
+    if 'Venue' in st.session_state.df_full.columns:
+        unique_venues = sorted(st.session_state.df_full['Venue'].astype(str).unique())
+        if len(unique_venues) > 1 or (len(unique_venues) == 1 and unique_venues[0] != 'nan'):
+             st.sidebar.markdown("---")
+             st.sidebar.header("🏢 Заведение")
+             selected_venue = st.sidebar.selectbox("Выберите точку:", ["Все заведения"] + unique_venues)
+
     # ЛЕЧЕНИЕ ДАННЫХ В ПАМЯТИ (Если вдруг нет колонки)
     if 'Поставщик' not in st.session_state.df_full.columns:
         st.session_state.df_full['Поставщик'] = 'Не указан'
 
-    df_full = st.session_state.df_full.copy()
+    # ФИЛЬТРАЦИЯ
+    if selected_venue != "Все заведения":
+        df_full = st.session_state.df_full[st.session_state.df_full['Venue'] == selected_venue].copy()
+    else:
+        df_full = st.session_state.df_full.copy()
     df_full['Макро_Категория'] = df_full['Категория'].apply(get_macro_category)
     
     df_full['Макро_Категория'] = df_full['Категория'].apply(get_macro_category)
@@ -668,7 +765,7 @@ if st.session_state.df_full is not None:
     
     # Используем session_state для сохранения выбора вкладки, если нужно, но st.radio и так сохраняет состояние
     selected_tab = st.radio("Раздел:", tab_options, horizontal=True, label_visibility="collapsed")
-    st.sidebar.caption("v2.2 (Cloud Fixed) 🚀")
+    st.sidebar.caption("v2.3 (Multi-Venue) 🚀")
     st.write("---")
 
     # --- 1. ИНФЛЯЦИЯ ---
