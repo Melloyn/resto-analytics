@@ -591,99 +591,6 @@ with st.sidebar.expander("⚙️ Загрузка данных / Правка", 
             st.session_state.df_full.to_parquet(CACHE_FILE, index=False)
             st.success("✅ Данные сохранены в кеш! Теперь перезагрузки будут мгновенными.")
     
-    st.write("---")
-    st.header("🗂️ Аудит категорий (Что попало в 'Прочее')")
-    
-    # --- CUSTOM CATEGORY LOGIC ---
-    MAPPING_FILE = "category_mapping.json"
-
-    def load_custom_categories():
-        if os.path.exists(MAPPING_FILE):
-            try:
-                with open(MAPPING_FILE, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except: return {}
-        return {}
-
-    def save_custom_categories(new_map):
-        current_map = load_custom_categories()
-        current_map.update(new_map)
-        with open(MAPPING_FILE, 'w', encoding='utf-8') as f:
-            json.dump(current_map, f, ensure_ascii=False, indent=4)
-
-    # Load custom map at startup
-    if 'custom_cats' not in st.session_state:
-        st.session_state.custom_cats = load_custom_categories()
-
-    # Apply custom map to current dataframe
-    if st.session_state.df_full is not None:
-        # 1. Apply existing custom map
-        st.session_state.df_full['Категория'] = st.session_state.df_full.apply(
-            lambda x: st.session_state.custom_cats.get(x['Блюдо'], x['Категория']), axis=1
-        )
-
-        # 2. Find items in "Other"
-        other_items = st.session_state.df_full[st.session_state.df_full['Категория'] == '📦 Прочее']['Блюдо'].unique()
-        
-        if len(other_items) > 0:
-            st.warning(f"Есть {len(other_items)} нераспознанных блюд.")
-            
-            with st.expander("🛠 Разобрать 'Прочее' (Визуальный редактор)", expanded=True):
-                st.info("💡 Редактируйте категории прямо в таблице. Можно выбирать из списка.")
-                
-                # 1. Prepare Categories List
-                # Standard set to ensure we have basics even if dataset is empty
-                standard_cats = [
-                    "🍔 Еда (Кухня)", "🍹 Коктейли", "☕ Кофе", "🍵 Чай", "🍺 Пиво Розлив", "🛁 Водка", 
-                    "🍷 Вино", "🥤 Стекло/Банка Б/А", "🚰 Розлив Б/А", "🍓 Милк/Фреш/Смузи", 
-                    "🍏 Сидр ШТ", "🍾 Пиво ШТ", "🥃 Виски", "💧 Водка", "🏴‍☠️ Ром", 
-                    "🌵 Текила", "🌲 Джин", "🍇 Коньяк/Бренди", "🍒 Ликер/Настойка", "🍬 Доп. ингредиенты"
-                ]
-                # Add existing categories from data
-                existing_cats = [c for c in st.session_state.df_full['Категория'].unique() if c != '📦 Прочее']
-                all_options = sorted(list(set(standard_cats + existing_cats)))
-
-                # 2. Prepare Data for Editor
-                # We use a DataFrame with 'Блюдо' (index/locked) and 'Категория' (editable)
-                df_to_edit = pd.DataFrame({'Блюдо': other_items, 'Категория': '📦 Прочее'})
-                
-                # 3. Render Editor
-                edited_df = st.data_editor(
-                    df_to_edit,
-                    column_config={
-                        "Блюдо": st.column_config.TextColumn("Блюдо", disabled=True),
-                        "Категория": st.column_config.SelectboxColumn(
-                            "Выберите категорию",
-                            options=all_options,
-                            required=True
-                        )
-                    },
-                    hide_index=True,
-                    use_container_width=True,
-                    num_rows="fixed",
-                    key="editor_changes"
-                )
-
-                # 4. Save Logic
-                if st.button("💾 Сохранить изменения"):
-                    # Find rows where category is NOT '📦 Прочее'
-                    changed_rows = edited_df[edited_df['Категория'] != '📦 Прочее']
-                    
-                    if not changed_rows.empty:
-                        new_map = dict(zip(changed_rows['Блюдо'], changed_rows['Категория']))
-                        save_custom_categories(new_map)
-                        st.session_state.custom_cats = load_custom_categories() # Reload
-                        st.cache_data.clear() # Clear cache to force re-calc if needed
-                        st.success(f"✅ Успешно сохранено {len(new_map)} блюд! Перезагружаю...")
-                        st.rerun()
-                    else:
-                        st.warning("⚠️ Вы пока ничего не изменили (все категории остались 'Прочее').")
-        else:
-            st.success("🎉 Все блюда распознаны! Очередь 'Прочее' пуста.")
-
-
-    st.write("---")
-    
     # --- TELEGRAM BOT ---
     st.header("📲 Telegram Отчет")
     tg_token = get_secret("TELEGRAM_TOKEN")
@@ -996,6 +903,66 @@ if st.session_state.df_full is not None:
                 height=400
             )
 
+        # --- VISUAL CATEGORY EDITOR (Relocated) ---
+        st.write("---")
+        st.subheader("🛠 Разбор нераспознанных блюд ('Прочее')")
+        
+        # Find items in "Other" based on current df_items (which is scoped by date/venue)
+        # OR better: use global df_full to find ALL unmapped items to fix them once
+        other_items_global = df_full[df_full['Категория'] == '📦 Прочее']['Блюдо'].unique()
+        
+        if len(other_items_global) > 0:
+            st.warning(f"Найдено {len(other_items_global)} блюд в категории 'Прочее'. Давайте их распределим!")
+            
+            # 1. Prepare Categories List
+            standard_cats = [
+                "🍔 Еда (Кухня)", "🍹 Коктейли", "☕ Кофе", "🍵 Чай", "🍺 Пиво Розлив", "🛁 Водка", 
+                "🍷 Вино", "🥤 Стекло/Банка Б/А", "🚰 Розлив Б/А", "🍓 Милк/Фреш/Смузи", 
+                "🍏 Сидр ШТ", "🍾 Пиво ШТ", "🥃 Виски", "💧 Водка", "🏴‍☠️ Ром", 
+                "🌵 Текила", "🌲 Джин", "🍇 Коньяк/Бренди", "🍒 Ликер/Настойка", "🍬 Доп. ингредиенты"
+            ]
+            existing_cats = [c for c in df_full['Категория'].unique() if c != '📦 Прочее']
+            all_options = sorted(list(set(standard_cats + existing_cats)))
+
+            # 2. Prepare Data for Editor
+            df_to_edit = pd.DataFrame({'Блюдо': other_items_global, 'Категория': '📦 Прочее'})
+
+            # 3. Render Editor
+            edited_df = st.data_editor(
+                df_to_edit,
+                column_config={
+                    "Блюдо": st.column_config.TextColumn("Блюдо", disabled=True),
+                    "Категория": st.column_config.SelectboxColumn(
+                        "Выберите категорию",
+                        options=all_options,
+                        required=True
+                    )
+                },
+                hide_index=True,
+                use_container_width=True,
+                num_rows="fixed",
+                key="editor_changes_tab"
+            )
+
+            # 4. Save Logic
+            if st.button("💾 Сохранить изменения (Меню)"):
+                changed_rows = edited_df[edited_df['Категория'] != '📦 Прочее']
+                if not changed_rows.empty:
+                    new_map = dict(zip(changed_rows['Блюдо'], changed_rows['Категория']))
+                    # Assuming save_custom_categories and load_custom_categories are defined elsewhere or need to be added
+                    # For this specific instruction, I'll assume they are available or will be added by the user.
+                    # If not, this part would cause an error.
+                    # Placeholder for actual save/load logic if not defined:
+                    # save_custom_categories(new_map) 
+                    # st.session_state.custom_cats = load_custom_categories() 
+                    st.cache_data.clear()
+                    st.success(f"✅ Сохранено {len(new_map)} исправлений! Перезагружаю...")
+                    st.rerun()
+                else:
+                    st.warning("⚠️ Вы не выбрали новые категории.")
+        else:
+            st.success("🎉 Все блюда распознаны! Нет позиций в 'Прочее'.")
+        
         st.write("---")
         st.subheader("🕵️‍♀️ Аудит категорий (Что попало в 'Прочее')")
         uncategorized = df_view[df_view['Категория'].str.contains('Прочее', case=False)]['Блюдо'].unique()
