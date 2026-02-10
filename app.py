@@ -4,6 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import requests
 import re
+import json
 import numpy as np
 import os
 import telegram_utils
@@ -585,44 +586,76 @@ with st.sidebar.expander("⚙️ Загрузка данных / Правка", 
             st.success("✅ Данные сохранены в кеш! Теперь перезагрузки будут мгновенными.")
     
     st.write("---")
-    st.header("🗂️ Ручная правка")
-    st.info("Если автомат ошибся, загрузи исправленный список (Блюдо, Категория).")
-    
-    # --- TELEGRAM BOT ---
     st.write("---")
-    st.header("📲 Telegram Отчет")
-    tg_token = get_secret("TELEGRAM_TOKEN")
-    tg_chat = get_secret("TELEGRAM_CHAT_ID")
+    st.header("🗂️ Аудит категорий (Что попало в 'Прочее')")
     
-    if st.button("📤 Отправить отчет в Telegram"):
-        if not tg_token or not tg_chat:
-            st.error("❌ Сначала добавьте TELEGRAM_TOKEN и TELEGRAM_CHAT_ID в Secrets!")
-        elif st.session_state.df_full is None:
-            st.warning("⚠️ Сначала загрузите данные.")
-        else:
-            with st.spinner("Формирую отчет..."):
-                target_date = datetime.now() # Или брать из фильтра, если он есть
-                report_text = telegram_utils.format_report(st.session_state.df_full, target_date)
-                success, msg = telegram_utils.send_to_all(tg_token, tg_chat, report_text)
-                if success:
-                    st.success(msg)
-                else:
-                    st.error(msg)
-    category_file = st.file_uploader("Файл справочника", type=['csv', 'xlsx']) # Moved inside expander
+    # --- CUSTOM CATEGORY LOGIC ---
+    MAPPING_FILE = "category_mapping.json"
 
-    if st.session_state.df_full is not None and category_file is not None:
-        try:
-            if category_file.name.endswith('.csv'):
-                cat_df = pd.read_csv(category_file)
-            else:
-                cat_df = pd.read_excel(category_file)
-            col_item = next((c for c in cat_df.columns if 'блюдо' in c.lower() or 'item' in c.lower()), None)
-            col_cat = next((c for c in cat_df.columns if 'категория' in c.lower() or 'category' in c.lower()), None)
-            if col_item and col_cat:
-                mapping = dict(zip(cat_df[col_item], cat_df[col_cat]))
-                st.session_state.df_full['Категория'] = st.session_state.df_full['Блюдо'].map(mapping).fillna(st.session_state.df_full['Категория'])
-                st.success(f"✅ Справочник применен!")
-        except: pass
+    def load_custom_categories():
+        if os.path.exists(MAPPING_FILE):
+            try:
+                with open(MAPPING_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except: return {}
+        return {}
+
+    def save_custom_categories(new_map):
+        current_map = load_custom_categories()
+        current_map.update(new_map)
+        with open(MAPPING_FILE, 'w', encoding='utf-8') as f:
+            json.dump(current_map, f, ensure_ascii=False, indent=4)
+
+    # Load custom map at startup
+    if 'custom_cats' not in st.session_state:
+        st.session_state.custom_cats = load_custom_categories()
+
+    # Apply custom map to current dataframe
+    if st.session_state.df_full is not None:
+        # 1. Apply existing custom map
+        st.session_state.df_full['Категория'] = st.session_state.df_full.apply(
+            lambda x: st.session_state.custom_cats.get(x['Блюдо'], x['Категория']), axis=1
+        )
+
+        # 2. Find items in "Other"
+        other_items = st.session_state.df_full[st.session_state.df_full['Категория'] == '📦 Прочее']['Блюдо'].unique()
+        
+        if len(other_items) > 0:
+            st.warning(f"Есть {len(other_items)} нераспознанных блюд.")
+            
+            with st.expander("🛠 Разобрать 'Прочее' (Визуальный редактор)", expanded=True):
+                # Create a form for editing
+                with st.form("category_editor"):
+                    col1, col2 = st.columns([2, 1])
+                    
+                    new_mappings = {}
+                    # Show top 20 for performance
+                    for item in other_items[:20]:
+                        col1.write(f"**{item}**")
+                        # Default category selection
+                        new_cat = col2.selectbox(
+                            "Категория", 
+                            ["📦 Прочее", "🍔 Еда (Кухня)", "🍹 Коктейли", "☕ Кофе", "🍵 Чай", "🍺 Пиво Розлив", "🛁 Водка", "🍷 Вино"], # Add all your categories here
+                            key=f"cat_{item}",
+                            label_visibility="collapsed"
+                        )
+                        if new_cat != "📦 Прочее":
+                            new_mappings[item] = new_cat
+                    
+                    if len(other_items) > 20:
+                        st.info(f"...и еще {len(other_items)-20} позиций (сохраните текущие, чтобы увидеть следующие).")
+
+                    if st.form_submit_button("💾 Сохранить и запомнить"):
+                        if new_mappings:
+                            save_custom_categories(new_mappings)
+                            st.session_state.custom_cats = load_custom_categories() # Reload
+                            st.success(f"Запомнено {len(new_mappings)} блюд! Перезагружаю...")
+                            st.rerun()
+                        else:
+                            st.info("Ничего не выбрано для сохранения.")
+        else:
+            st.success("🎉 Все блюда распознаны! Очередь 'Прочее' пуста.")
+
 
     st.write("---")
     # Кнопка скачивания общей базы (moved here)
