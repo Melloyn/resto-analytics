@@ -511,6 +511,15 @@ def load_from_local_folder(root_path):
         st.error(f"Error loading local files: {e}")
         return []
 
+# --- AUTO-LOAD CACHE ON STARTUP ---
+CACHE_FILE = "data_cache.parquet"
+if st.session_state.df_full is None and os.path.exists(CACHE_FILE):
+    try:
+        st.session_state.df_full = pd.read_parquet(CACHE_FILE)
+        # Optional: st.toast("Данные восстановлены из кеша", icon="💾")
+    except Exception:
+        pass # Fail silently, user can load manually
+
 # --- 1. SIDEBAR: DATA LOADING ---
 with st.sidebar:
     st.title("🎛 Меню")
