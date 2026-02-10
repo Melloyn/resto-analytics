@@ -385,32 +385,57 @@ def generate_insights(df_curr, df_prev, cur_rev, prev_rev, cur_fc):
         if not alerts:
             st.success("✅ **Всё спокойно**: Критических отклонений не найдено.")
 
-def load_all_from_yandex(folder_path):
+def load_all_from_yandex(root_path):
     token = get_secret("YANDEX_TOKEN")
     if not token: return None
     headers = {'Authorization': f'OAuth {token}'}
     api_url = 'https://cloud-api.yandex.net/v1/disk/resources'
-    params = {'path': folder_path, 'limit': 2000}
-    try:
-        response = requests.get(api_url, headers=headers, params=params, timeout=20)
-        if response.status_code != 200: return []
-        items = response.json().get('_embedded', {}).get('items', [])
-        files = [i for i in items if i['type'] == 'file']
-        data_frames = []
+    
+    # helper to process a list of files with a specific venue tag
+    def process_items(files, venue_tag):
+        processed = []
         for item in files:
             try:
                 file_resp = requests.get(item['file'], headers=headers, timeout=20)
                 df, error, warnings = process_single_file(BytesIO(file_resp.content), filename=item['name'])
                 if error:
-                    st.warning(error)
-                else:
-                    for warning in warnings:
-                        st.warning(warning)
+                    st.warning(f"{item['name']}: {error}")
                 if df is not None:
-                    data_frames.append(df)
+                    df['Venue'] = venue_tag
+                    processed.append(df)
             except: continue
-        return data_frames
-    except: return []
+        return processed
+
+    # 1. Get Root Items
+    params = {'path': root_path, 'limit': 2000}
+    try:
+        response = requests.get(api_url, headers=headers, params=params, timeout=20)
+        if response.status_code != 200: return []
+        items = response.json().get('_embedded', {}).get('items', [])
+        
+        folders = [i for i in items if i['type'] == 'dir']
+        root_files = [i for i in items if i['type'] == 'file' and (i['name'].endswith('.xlsx') or i['name'].endswith('.csv'))]
+        
+        all_dfs = []
+        
+        # 2. Process Root Files -> Venue = 'General'
+        if root_files:
+             all_dfs.extend(process_items(root_files, 'General'))
+
+        # 3. Process Subfolders -> Venue = Folder Name
+        for folder in folders:
+            sub_params = {'path': folder['path'], 'limit': 1000}
+            sub_resp = requests.get(api_url, headers=headers, params=sub_params, timeout=20)
+            if sub_resp.status_code == 200:
+                sub_items = sub_resp.json().get('_embedded', {}).get('items', [])
+                sub_files = [i for i in sub_items if i['type'] == 'file' and (i['name'].endswith('.xlsx') or i['name'].endswith('.csv'))]
+                if sub_files:
+                    all_dfs.extend(process_items(sub_files, folder['name']))
+        
+        return all_dfs
+    except Exception as e:
+        st.error(f"Error loading from Yandex: {e}")
+        return []
 
 # --- ИНТЕРФЕЙС ЗАГРУЗКИ (Свернутый) ---
 with st.sidebar.expander("⚙️ Загрузка данных / Правка", expanded=False):

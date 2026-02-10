@@ -50,19 +50,54 @@ def sync_from_yandex():
             print(f"❌ Yandex API Error: {response.status_code}")
             return
 
-        items = response.json().get('_embedded', {}).get('items', [])
-        files = [i for i in items if i['type'] == 'file' and (i['name'].endswith('.xlsx') or i['name'].endswith('.csv'))]
-        
-        print(f"📂 Found {len(files)} files.")
-        
-        # 2. Download and Merge
+        # 2. Recursive Scan
         data_frames = []
-        for item in files:
-            print(f"⬇️ Downloading {item['name']}...")
-            file_resp = requests.get(item['file'], headers=headers, timeout=20)
-            df = process_single_file(BytesIO(file_resp.content), item['name'])
-            if df is not None:
-                data_frames.append(df)
+        
+        # Check if root has subfolders
+        items = response.json().get('_embedded', {}).get('items', [])
+        
+        # We need to distinguish between files in root and folders (Venues)
+        # Strategy: 
+        # - Files in root -> Venue = 'General'
+        # - Files in subfolder -> Venue = Subfolder Name
+        
+        folders = [i for i in items if i['type'] == 'dir']
+        root_files = [i for i in items if i['type'] == 'file' and (i['name'].endswith('.xlsx') or i['name'].endswith('.csv'))]
+        
+        # Process Root Files
+        for item in root_files:
+            print(f"⬇️ Downloading {item['name']} (Root)...")
+            try:
+                file_resp = requests.get(item['file'], headers=headers, timeout=20)
+                df = process_single_file(BytesIO(file_resp.content), item['name'])
+                if df is not None:
+                    df['Venue'] = 'General' # Default tag
+                    data_frames.append(df)
+            except Exception as e:
+                print(f"❌ Error downloading {item['name']}: {e}")
+
+        # Process Subfolders
+        for folder in folders:
+            venue_name = folder['name']
+            print(f"📂 Scanning Venue: {venue_name}...")
+            
+            # List files in subfolder
+            sub_params = {'path': folder['path'], 'limit': 1000}
+            sub_resp = requests.get(api_url, headers=headers, params=sub_params, timeout=20)
+            if sub_resp.status_code == 200:
+                sub_items = sub_resp.json().get('_embedded', {}).get('items', [])
+                sub_files = [i for i in sub_items if i['type'] == 'file' and (i['name'].endswith('.xlsx') or i['name'].endswith('.csv'))]
+                
+                for item in sub_files:
+                    print(f"   ⬇️ Downloading {item['name']}...")
+                    try:
+                        file_resp = requests.get(item['file'], headers=headers, timeout=20)
+                        df = process_single_file(BytesIO(file_resp.content), item['name'])
+                        if df is not None:
+                            df['Venue'] = venue_name
+                            data_frames.append(df)
+                    except Exception as e:
+                        print(f"   ❌ Error downloading {item['name']}: {e}")
         
         if data_frames:
             full_df = pd.concat(data_frames, ignore_index=True)
