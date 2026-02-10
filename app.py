@@ -532,8 +532,9 @@ with st.sidebar.expander("⚙️ Загрузка данных / Правка", 
              st.warning("Кеш пуст. Загрузите данные вручную и сохраните их.")
 
     if source_mode == "Локальная папка":
-        local_path = st.text_input("Путь к папке:", ".")
-        if st.button("📂 Сканировать папку"):
+        local_path = "/Users/bolsbully/Desktop"
+        st.info(f"📂 Источник: {local_path}")
+        if st.button("� Сканировать папку"):
             temp_data = load_from_local_folder(local_path)
             if temp_data:
                 st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
@@ -566,7 +567,8 @@ with st.sidebar.expander("⚙️ Загрузка данных / Правка", 
                 st.success("Файлы обработаны!")
                 
     elif source_mode == "Яндекс.Диск":
-        yandex_path = st.text_input("Папка на Диске:", "RestoAnalytic")
+        yandex_path = "RestoAnalytic"
+        st.info(f"☁️ Папка Яндекс.Диска: {yandex_path}")
         if st.button("🔄 Скачать отчеты"):
             if not get_secret("YANDEX_TOKEN"):
                  st.error("⚠️ Нет токена в Secrets (локально или в облаке)!")
