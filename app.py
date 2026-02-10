@@ -989,14 +989,7 @@ if st.session_state.df_full is not None:
         else:
             st.success("🎉 Все блюда распознаны! Нет позиций в 'Прочее'.")
         
-        st.write("---")
-        st.subheader("🕵️‍♀️ Аудит категорий (Что попало в 'Прочее')")
-        uncategorized = df_view[df_view['Категория'].str.contains('Прочее', case=False)]['Блюдо'].unique()
-        if len(uncategorized) > 0:
-            st.warning(f"Есть {len(uncategorized)} нераспознанных блюд.")
-            st.dataframe(pd.DataFrame(uncategorized, columns=['Нераспознанные блюда']), use_container_width=True)
-        else:
-            st.success("Все блюда распределены!")
+
 
     # --- 4. ABC МАТРИЦА ---
     elif selected_tab == "⭐ Матрица (ABC)":
