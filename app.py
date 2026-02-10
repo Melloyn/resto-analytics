@@ -91,7 +91,6 @@ def setup_style():
 
         /* Remove Deploy Button & Padding */
         #MainMenu {visibility: hidden;}
-        header {visibility: hidden;}
         .block-container {
             padding-top: 2rem;
             padding-bottom: 2rem;
