@@ -629,35 +629,55 @@ with st.sidebar.expander("⚙️ Загрузка данных / Правка", 
             st.warning(f"Есть {len(other_items)} нераспознанных блюд.")
             
             with st.expander("🛠 Разобрать 'Прочее' (Визуальный редактор)", expanded=True):
-                # Create a form for editing
-                with st.form("category_editor"):
-                    col1, col2 = st.columns([2, 1])
-                    
-                    new_mappings = {}
-                    # Show top 20 for performance
-                    for item in other_items[:20]:
-                        col1.write(f"**{item}**")
-                        # Default category selection
-                        new_cat = col2.selectbox(
-                            "Категория", 
-                            ["📦 Прочее", "🍔 Еда (Кухня)", "🍹 Коктейли", "☕ Кофе", "🍵 Чай", "🍺 Пиво Розлив", "🛁 Водка", "🍷 Вино"], # Add all your categories here
-                            key=f"cat_{item}",
-                            label_visibility="collapsed"
-                        )
-                        if new_cat != "📦 Прочее":
-                            new_mappings[item] = new_cat
-                    
-                    if len(other_items) > 20:
-                        st.info(f"...и еще {len(other_items)-20} позиций (сохраните текущие, чтобы увидеть следующие).")
+                st.info("💡 Редактируйте категории прямо в таблице. Можно выбирать из списка.")
+                
+                # 1. Prepare Categories List
+                # Standard set to ensure we have basics even if dataset is empty
+                standard_cats = [
+                    "🍔 Еда (Кухня)", "🍹 Коктейли", "☕ Кофе", "🍵 Чай", "🍺 Пиво Розлив", "🛁 Водка", 
+                    "🍷 Вино", "🥤 Стекло/Банка Б/А", "🚰 Розлив Б/А", "🍓 Милк/Фреш/Смузи", 
+                    "🍏 Сидр ШТ", "🍾 Пиво ШТ", "🥃 Виски", "💧 Водка", "🏴‍☠️ Ром", 
+                    "🌵 Текила", "🌲 Джин", "🍇 Коньяк/Бренди", "🍒 Ликер/Настойка", "🍬 Доп. ингредиенты"
+                ]
+                # Add existing categories from data
+                existing_cats = [c for c in st.session_state.df_full['Категория'].unique() if c != '📦 Прочее']
+                all_options = sorted(list(set(standard_cats + existing_cats)))
 
-                    if st.form_submit_button("💾 Сохранить и запомнить"):
-                        if new_mappings:
-                            save_custom_categories(new_mappings)
-                            st.session_state.custom_cats = load_custom_categories() # Reload
-                            st.success(f"Запомнено {len(new_mappings)} блюд! Перезагружаю...")
-                            st.rerun()
-                        else:
-                            st.info("Ничего не выбрано для сохранения.")
+                # 2. Prepare Data for Editor
+                # We use a DataFrame with 'Блюдо' (index/locked) and 'Категория' (editable)
+                df_to_edit = pd.DataFrame({'Блюдо': other_items, 'Категория': '📦 Прочее'})
+                
+                # 3. Render Editor
+                edited_df = st.data_editor(
+                    df_to_edit,
+                    column_config={
+                        "Блюдо": st.column_config.TextColumn("Блюдо", disabled=True),
+                        "Категория": st.column_config.SelectboxColumn(
+                            "Выберите категорию",
+                            options=all_options,
+                            required=True
+                        )
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                    num_rows="fixed",
+                    key="editor_changes"
+                )
+
+                # 4. Save Logic
+                if st.button("💾 Сохранить изменения"):
+                    # Find rows where category is NOT '📦 Прочее'
+                    changed_rows = edited_df[edited_df['Категория'] != '📦 Прочее']
+                    
+                    if not changed_rows.empty:
+                        new_map = dict(zip(changed_rows['Блюдо'], changed_rows['Категория']))
+                        save_custom_categories(new_map)
+                        st.session_state.custom_cats = load_custom_categories() # Reload
+                        st.cache_data.clear() # Clear cache to force re-calc if needed
+                        st.success(f"✅ Успешно сохранено {len(new_map)} блюд! Перезагружаю...")
+                        st.rerun()
+                    else:
+                        st.warning("⚠️ Вы пока ничего не изменили (все категории остались 'Прочее').")
         else:
             st.success("🎉 Все блюда распознаны! Очередь 'Прочее' пуста.")
 
