@@ -7,6 +7,9 @@ import requests
 import json
 import numpy as np
 import os
+import sqlite3
+import hashlib
+import hmac
 import telegram_utils
 import data_engine
 from io import BytesIO
@@ -49,9 +52,189 @@ def get_secret(key):
     except FileNotFoundError:
         return None
 
+USERS_DB = "users.db"
+PASSWORD_ITERATIONS = 200_000
+
+def _db_conn():
+    return sqlite3.connect(USERS_DB)
+
+def init_auth_db():
+    with _db_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                full_name TEXT NOT NULL,
+                login TEXT NOT NULL UNIQUE,
+                email TEXT NOT NULL UNIQUE,
+                phone TEXT NOT NULL,
+                password_salt TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'user',
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+
+def _hash_password(password, salt_hex):
+    salt = bytes.fromhex(salt_hex)
+    return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PASSWORD_ITERATIONS).hex()
+
+def _make_password(password):
+    salt_hex = os.urandom(16).hex()
+    return salt_hex, _hash_password(password, salt_hex)
+
+def _verify_password(password, salt_hex, expected_hash):
+    candidate = _hash_password(password, salt_hex)
+    return hmac.compare_digest(candidate, expected_hash)
+
+def create_user(full_name, login, email, phone, password, role="user", status="pending"):
+    salt_hex, pw_hash = _make_password(password)
+    created_at = datetime.utcnow().isoformat()
+    with _db_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO users (full_name, login, email, phone, password_salt, password_hash, role, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (full_name, login, email, phone, salt_hex, pw_hash, role, status, created_at),
+        )
+        conn.commit()
+
+def authenticate_user(login, password):
+    with _db_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT id, full_name, login, email, phone, password_salt, password_hash, role, status
+            FROM users
+            WHERE login = ?
+            """,
+            (login.strip(),),
+        ).fetchone()
+    if not row:
+        return None, "Неверный логин или пароль."
+
+    user = {
+        "id": row[0], "full_name": row[1], "login": row[2], "email": row[3], "phone": row[4],
+        "password_salt": row[5], "password_hash": row[6], "role": row[7], "status": row[8]
+    }
+    if not _verify_password(password, user["password_salt"], user["password_hash"]):
+        return None, "Неверный логин или пароль."
+    if user["status"] != "approved":
+        return None, "Ваш аккаунт пока не одобрен администратором."
+    return user, None
+
+def get_pending_users():
+    with _db_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, full_name, login, email, phone, created_at
+            FROM users
+            WHERE status = 'pending'
+            ORDER BY created_at ASC
+            """
+        ).fetchall()
+    return rows
+
+def get_all_users():
+    with _db_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, full_name, login, email, phone, role, status, created_at
+            FROM users
+            ORDER BY created_at DESC
+            """
+        ).fetchall()
+    return rows
+
+def get_user_by_id(user_id):
+    with _db_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT id, full_name, login, email, phone, role, status
+            FROM users
+            WHERE id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+    return row
+
+def update_user_status(user_id, status):
+    with _db_conn() as conn:
+        conn.execute("UPDATE users SET status = ? WHERE id = ?", (status, user_id))
+        conn.commit()
+
+def update_user_role(user_id, role):
+    with _db_conn() as conn:
+        conn.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
+        conn.commit()
+
+def bootstrap_admin():
+    admin_login = get_secret("ADMIN_LOGIN") or os.getenv("ADMIN_LOGIN")
+    admin_password = get_secret("ADMIN_PASSWORD") or os.getenv("ADMIN_PASSWORD")
+    if not admin_login or not admin_password:
+        return
+
+    with _db_conn() as conn:
+        existing = conn.execute("SELECT id FROM users WHERE login = ?", (admin_login,)).fetchone()
+    if existing:
+        return
+
+    admin_name = get_secret("ADMIN_NAME") or os.getenv("ADMIN_NAME") or "Администратор"
+    admin_email = get_secret("ADMIN_EMAIL") or os.getenv("ADMIN_EMAIL") or f"{admin_login}@local"
+    admin_phone = get_secret("ADMIN_PHONE") or os.getenv("ADMIN_PHONE") or "+70000000000"
+    create_user(admin_name, admin_login, admin_email, admin_phone, admin_password, role="admin", status="approved")
+
+def render_auth_screen():
+    st.title("🔐 Вход в RestoAnalytic")
+    tab_login, tab_register = st.tabs(["Вход", "Регистрация"])
+
+    with tab_login:
+        with st.form("login_form", clear_on_submit=False):
+            login = st.text_input("Логин")
+            password = st.text_input("Пароль", type="password")
+            submitted = st.form_submit_button("Войти")
+            if submitted:
+                user, err = authenticate_user(login, password)
+                if err:
+                    st.error(err)
+                else:
+                    st.session_state.auth_user = {
+                        "id": user["id"],
+                        "full_name": user["full_name"],
+                        "login": user["login"],
+                        "role": user["role"],
+                        "status": user["status"],
+                    }
+                    st.rerun()
+
+    with tab_register:
+        with st.form("register_form", clear_on_submit=True):
+            full_name = st.text_input("Имя *")
+            login = st.text_input("Логин *")
+            email = st.text_input("Почта *")
+            phone = st.text_input("Номер телефона *")
+            password = st.text_input("Пароль *", type="password")
+            password_confirm = st.text_input("Подтверждение пароля *", type="password")
+            submitted = st.form_submit_button("Зарегистрироваться")
+            if submitted:
+                if not all([full_name.strip(), login.strip(), email.strip(), phone.strip(), password, password_confirm]):
+                    st.error("Заполните все обязательные поля.")
+                elif password != password_confirm:
+                    st.error("Пароли не совпадают.")
+                elif len(password) < 8:
+                    st.error("Пароль должен быть не короче 8 символов.")
+                else:
+                    try:
+                        create_user(full_name.strip(), login.strip(), email.strip(), phone.strip(), password)
+                        st.success("Регистрация отправлена. Ожидайте одобрения администратора.")
+                    except sqlite3.IntegrityError:
+                        st.error("Логин или почта уже заняты.")
+
 # --- НАСТРОЙКИ СТРАНИЦЫ ---
 st.set_page_config(page_title="RestoAnalytics: Место", layout="wide", initial_sidebar_state="expanded")
-st.title("📊 Аналитика: Бар МЕСТО")
+if st.session_state.get("auth_user") is not None:
+    st.title("📊 Аналитика: Бар МЕСТО")
 
 # --- CSS STYLING ---
 def setup_style():
@@ -505,6 +688,9 @@ def show_loading_overlay(message="Скачиваем и обрабатываем
         unsafe_allow_html=True
     )
 
+init_auth_db()
+bootstrap_admin()
+
 # --- ИНИЦИАЛИЗАЦИЯ ПАМЯТИ ---
 if 'df_full' not in st.session_state:
     st.session_state.df_full = None
@@ -512,6 +698,8 @@ if 'dropped_stats' not in st.session_state:
     st.session_state.dropped_stats = {'count': 0, 'cost': 0.0, 'items': []}
 if 'is_admin' not in st.session_state:
     st.session_state.is_admin = False
+if 'auth_user' not in st.session_state:
+    st.session_state.auth_user = None
 if 'df_version' not in st.session_state:
     st.session_state.df_version = 0
 if 'categories_applied_sig' not in st.session_state:
@@ -522,6 +710,29 @@ if 'yandex_path' not in st.session_state:
     st.session_state.yandex_path = "RestoAnalytic"
 if 'edit_yandex_path' not in st.session_state:
     st.session_state.edit_yandex_path = False
+
+# Access gate: unapproved/anonymous users see only auth screen.
+if st.session_state.auth_user is None:
+    render_auth_screen()
+    st.stop()
+
+if st.session_state.auth_user is not None:
+    # Sync role/status on each run.
+    fresh_user = get_user_by_id(st.session_state.auth_user["id"])
+    if not fresh_user or fresh_user[6] != "approved":
+        st.session_state.auth_user = None
+        st.warning("Доступ отозван или аккаунт не одобрен.")
+        render_auth_screen()
+        st.stop()
+
+    st.session_state.auth_user.update({
+        "id": fresh_user[0],
+        "full_name": fresh_user[1],
+        "login": fresh_user[2],
+        "role": fresh_user[5],
+        "status": fresh_user[6],
+    })
+    st.session_state.is_admin = st.session_state.auth_user.get("role") == "admin"
 
 # --- 1. ГРУППИРОВКА ДЛЯ МАКРО-УРОВНЯ ---
 
@@ -933,30 +1144,54 @@ is_admin = st.session_state.is_admin
 main_loader_slot = st.empty()
 with st.sidebar:
     st.title("🎛 Меню")
+    st.caption(f"👤 {st.session_state.auth_user.get('full_name')} (@{st.session_state.auth_user.get('login')})")
+    if st.button("🚪 Выйти", use_container_width=True):
+        st.session_state.auth_user = None
+        st.session_state.is_admin = False
+        st.rerun()
 
-    admin_pin = get_secret("ADMIN_PIN") or os.getenv("ADMIN_PIN")
-    if admin_pin:
-        with st.expander("🔐 Админ-доступ", expanded=False):
-            entered_pin = st.text_input("Введите PIN", type="password", key="admin_pin_input")
-            col_login, col_logout = st.columns(2)
-            with col_login:
-                if st.button("Войти", use_container_width=True):
-                    if entered_pin == admin_pin:
-                        st.session_state.is_admin = True
-                        st.success("Админ-доступ включен")
-                        st.rerun()
-                    else:
-                        st.error("Неверный PIN")
-            with col_logout:
-                if st.button("Выйти", use_container_width=True):
-                    st.session_state.is_admin = False
-                    st.rerun()
-            if st.session_state.is_admin:
-                st.caption("Статус: админ")
-    else:
-        st.session_state.is_admin = True
+    is_admin = st.session_state.auth_user.get("role") == "admin"
+    st.session_state.is_admin = is_admin
 
-    is_admin = st.session_state.is_admin
+    if is_admin:
+        with st.expander("🛡 Админка пользователей", expanded=False):
+            pending = get_pending_users()
+            if pending:
+                st.write(f"Ожидают одобрения: {len(pending)}")
+                for u in pending:
+                    user_id, full_name, login, email, phone, created_at = u
+                    st.markdown(f"**{full_name}** (`{login}`)\n\n{email} | {phone}")
+                    c1, c2, c3 = st.columns([1, 1, 1.2])
+                    with c1:
+                        if st.button("✅ Одобрить", key=f"approve_{user_id}", use_container_width=True):
+                            update_user_status(user_id, "approved")
+                            st.rerun()
+                    with c2:
+                        if st.button("⛔ Отклонить", key=f"reject_{user_id}", use_container_width=True):
+                            update_user_status(user_id, "rejected")
+                            st.rerun()
+                    with c3:
+                        role_choice = st.selectbox(
+                            "Роль",
+                            ["user", "admin"],
+                            key=f"role_pending_{user_id}",
+                            label_visibility="collapsed"
+                        )
+                        if st.button("💾 Роль", key=f"save_role_{user_id}", use_container_width=True):
+                            update_user_role(user_id, role_choice)
+                            st.rerun()
+                    st.divider()
+            else:
+                st.info("Нет заявок на доступ.")
+
+            st.write("### Все пользователи")
+            users = get_all_users()
+            if users:
+                users_df = pd.DataFrame(
+                    users,
+                    columns=["id", "Имя", "Логин", "Почта", "Телефон", "Роль", "Статус", "Создан"]
+                )
+                st.dataframe(users_df.drop(columns=["id"]), use_container_width=True, hide_index=True)
     
     # --- DATA SOURCE (EXPANDER) ---
     with st.expander("📂 Источник данных", expanded=False):
