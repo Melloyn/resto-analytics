@@ -623,24 +623,31 @@ def compute_abc_data(df_view_scope):
     abc_df['Класс'] = np.select(conditions, classes, default="🐶 Собака")
     return abc_df, avg_qty, avg_margin
 
-def compute_weekday_stats(df_full_scope):
-    if df_full_scope.empty:
-        return pd.DataFrame()
-    work = df_full_scope[['Дата_Отчета', 'Выручка с НДС']].copy()
-    work['ДеньНедели'] = work['Дата_Отчета'].dt.day_name()
+def compute_weekday_stats(df_scope):
+    if df_scope.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
     days_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     days_rus_map = {"Monday": "ПН", "Tuesday": "ВТ", "Wednesday": "СР", "Thursday": "ЧТ", "Friday": "ПТ", "Saturday": "СБ", "Sunday": "ВС"}
-    dow_stats = (
-        work.groupby(['Дата_Отчета', 'ДеньНедели'], observed=True)['Выручка с НДС']
+
+    daily = (
+        df_scope.groupby('Дата_Отчета', observed=True)['Выручка с НДС']
         .sum()
         .reset_index()
-        .groupby('ДеньНедели', observed=True)['Выручка с НДС']
+        .sort_values('Дата_Отчета')
+    )
+    daily['ДеньНедели'] = daily['Дата_Отчета'].dt.day_name()
+    daily['ДеньРус'] = daily['ДеньНедели'].map(days_rus_map)
+    daily['Дата_Подпись'] = daily['Дата_Отчета'].dt.strftime('%d.%m')
+
+    weekday_avg = (
+        daily.groupby('ДеньНедели', observed=True)['Выручка с НДС']
         .mean()
         .reindex(days_order)
         .reset_index()
     )
-    dow_stats['ДеньРус'] = dow_stats['ДеньНедели'].map(days_rus_map)
-    return dow_stats
+    weekday_avg['ДеньРус'] = weekday_avg['ДеньНедели'].map(days_rus_map)
+    return daily, weekday_avg
 
 def compute_purchase_plan(df_full_scope, days_to_buy, safety_stock):
     if df_full_scope.empty:
@@ -1884,13 +1891,32 @@ if st.session_state.df_full is not None:
     elif selected_tab == "🗓 Дни недели":
         st.subheader("🗓 Дни недели")
         if len(dates_list) > 1:
-            dow_stats = get_view_cached(
-                ("dow", base_full_key),
-                lambda: compute_weekday_stats(df_full)
+            daily_stats, weekday_avg = get_view_cached(
+                ("dow", base_view_key),
+                lambda: compute_weekday_stats(df_view)
             )
-            fig_dow = px.bar(dow_stats, x='ДеньРус', y='Выручка с НДС', color='Выручка с НДС')
-            fig_dow.update_traces(texttemplate='%{y:,.0f} ₽', textposition='auto')
-            st.plotly_chart(update_chart_layout(fig_dow), use_container_width=True)
+            if daily_stats.empty:
+                st.info("Нет данных за выбранный период.")
+            else:
+                col_d1, col_d2 = st.columns([1.8, 1])
+                with col_d1:
+                    st.write("### Выручка по дням периода")
+                    fig_daily = px.bar(
+                        daily_stats,
+                        x='Дата_Подпись',
+                        y='Выручка с НДС',
+                        color='Выручка с НДС',
+                        hover_data={'Дата_Отчета': True, 'ДеньРус': True}
+                    )
+                    fig_daily.update_traces(texttemplate='%{y:,.0f} ₽', textposition='outside')
+                    fig_daily.update_layout(xaxis_title="Дата", yaxis_title="Выручка")
+                    st.plotly_chart(update_chart_layout(fig_daily), use_container_width=True)
+
+                with col_d2:
+                    st.write("### Средняя по дням недели")
+                    fig_dow = px.bar(weekday_avg, x='ДеньРус', y='Выручка с НДС', color='Выручка с НДС')
+                    fig_dow.update_traces(texttemplate='%{y:,.0f} ₽', textposition='auto')
+                    st.plotly_chart(update_chart_layout(fig_dow), use_container_width=True)
         else:
             st.warning("Мало данных.")
 
