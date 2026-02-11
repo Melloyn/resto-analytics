@@ -97,6 +97,31 @@ def setup_style():
             z-index: 1;
             padding-top: 1.6rem;
             padding-bottom: 2rem;
+            animation: pageSlideIn 380ms cubic-bezier(0.2, 0.7, 0.2, 1);
+        }
+
+        @keyframes pageSlideIn {
+            from {
+                opacity: 0;
+                transform: translate3d(16px, 0, 0) scale(0.992);
+                filter: blur(5px);
+            }
+            to {
+                opacity: 1;
+                transform: translate3d(0, 0, 0) scale(1);
+                filter: blur(0);
+            }
+        }
+
+        @keyframes glassFadeUp {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         h1, h2, h3 {
@@ -126,6 +151,7 @@ def setup_style():
         [data-testid="stVerticalBlock"] > [data-testid="element-container"] > div:has([data-testid="stDataFrame"]) {
             border: 1px solid var(--glass-border) !important;
             box-shadow: var(--glass-shadow) !important;
+            animation: glassFadeUp 320ms ease-out;
         }
 
         [data-testid="stMetric"] {
@@ -184,6 +210,7 @@ def setup_style():
             backdrop-filter: blur(13px) saturate(130%);
             -webkit-backdrop-filter: blur(13px) saturate(130%);
             box-shadow: 0 10px 32px rgba(8, 21, 48, 0.28);
+            animation: glassFadeUp 340ms ease-out;
         }
 
         .streamlit-expanderHeader {
@@ -234,6 +261,7 @@ def setup_style():
             backdrop-filter: blur(12px);
             -webkit-backdrop-filter: blur(12px);
             box-shadow: 0 8px 30px rgba(6, 18, 41, 0.3);
+            animation: glassFadeUp 360ms ease-out;
         }
 
         [role="tablist"] {
@@ -268,6 +296,16 @@ def setup_style():
                 padding-top: 1rem;
                 padding-left: 0.75rem;
                 padding-right: 0.75rem;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .main .block-container,
+            [data-testid="stMetric"],
+            [data-testid="stExpander"],
+            [data-testid="stDataFrame"] {
+                animation: none !important;
+                transition: none !important;
             }
         }
     </style>
