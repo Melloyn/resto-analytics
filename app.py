@@ -511,6 +511,10 @@ if 'categories_applied_sig' not in st.session_state:
     st.session_state.categories_applied_sig = None
 if 'view_cache' not in st.session_state:
     st.session_state.view_cache = {}
+if 'yandex_path' not in st.session_state:
+    st.session_state.yandex_path = "RestoAnalytic"
+if 'edit_yandex_path' not in st.session_state:
+    st.session_state.edit_yandex_path = False
 
 # --- 1. ГРУППИРОВКА ДЛЯ МАКРО-УРОВНЯ ---
 
@@ -945,7 +949,24 @@ with st.sidebar:
 
         # --- YANDEX DISK ---
         if source_mode == "Яндекс.Диск":
-            yandex_path = st.text_input("Папка на Диске:", "RestoAnalytic")
+            st.markdown("Папка на Диске:")
+            if st.button(f"📁 {st.session_state.yandex_path}", use_container_width=True, key="yandex_path_button"):
+                st.session_state.edit_yandex_path = not st.session_state.edit_yandex_path
+
+            if st.session_state.edit_yandex_path:
+                new_path = st.text_input("Изменить путь:", st.session_state.yandex_path, key="yandex_path_editor")
+                e_col1, e_col2 = st.columns(2)
+                with e_col1:
+                    if st.button("💾 Сохранить путь", use_container_width=True, key="save_yandex_path"):
+                        st.session_state.yandex_path = new_path.strip() or "RestoAnalytic"
+                        st.session_state.edit_yandex_path = False
+                        st.rerun()
+                with e_col2:
+                    if st.button("✖ Отмена", use_container_width=True, key="cancel_yandex_path"):
+                        st.session_state.edit_yandex_path = False
+                        st.rerun()
+
+            yandex_path = st.session_state.yandex_path
             if st.button("🚀 Скачать отчеты", type="primary", use_container_width=True):
                 if not get_secret("YANDEX_TOKEN"):
                      st.error("⚠️ Нет токена!")
