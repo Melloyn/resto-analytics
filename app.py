@@ -10,6 +10,7 @@ import os
 import sqlite3
 import hashlib
 import hmac
+import secrets
 import telegram_utils
 import data_engine
 from io import BytesIO
@@ -57,6 +58,11 @@ PASSWORD_ITERATIONS = 200_000
 
 def _db_conn():
     return sqlite3.connect(USERS_DB)
+
+@st.cache_resource
+def get_runtime_sessions():
+    # token -> user_id (in-memory, resets on server reboot)
+    return {}
 
 def init_auth_db():
     with _db_conn() as conn:
@@ -159,6 +165,21 @@ def get_user_by_id(user_id):
         ).fetchone()
     return row
 
+def create_runtime_session(user_id):
+    token = secrets.token_urlsafe(32)
+    sessions = get_runtime_sessions()
+    sessions[token] = user_id
+    return token
+
+def resolve_runtime_session(token):
+    sessions = get_runtime_sessions()
+    return sessions.get(token)
+
+def drop_runtime_session(token):
+    sessions = get_runtime_sessions()
+    if token in sessions:
+        del sessions[token]
+
 def update_user_status(user_id, status):
     with _db_conn() as conn:
         conn.execute("UPDATE users SET status = ? WHERE id = ?", (status, user_id))
@@ -199,6 +220,7 @@ def render_auth_screen():
                 if err:
                     st.error(err)
                 else:
+                    token = create_runtime_session(user["id"])
                     st.session_state.auth_user = {
                         "id": user["id"],
                         "full_name": user["full_name"],
@@ -206,6 +228,8 @@ def render_auth_screen():
                         "role": user["role"],
                         "status": user["status"],
                     }
+                    st.session_state.auth_token = token
+                    st.query_params["auth"] = token
                     st.rerun()
 
     with tab_register:
@@ -700,6 +724,8 @@ if 'is_admin' not in st.session_state:
     st.session_state.is_admin = False
 if 'auth_user' not in st.session_state:
     st.session_state.auth_user = None
+if 'auth_token' not in st.session_state:
+    st.session_state.auth_token = None
 if 'df_version' not in st.session_state:
     st.session_state.df_version = 0
 if 'categories_applied_sig' not in st.session_state:
@@ -713,6 +739,25 @@ if 'edit_yandex_path' not in st.session_state:
 
 # Access gate: unapproved/anonymous users see only auth screen.
 if st.session_state.auth_user is None:
+    token_from_url = st.query_params.get("auth")
+    if token_from_url:
+        uid = resolve_runtime_session(token_from_url)
+        if uid is not None:
+            restored = get_user_by_id(uid)
+            if restored and restored[6] == "approved":
+                st.session_state.auth_user = {
+                    "id": restored[0],
+                    "full_name": restored[1],
+                    "login": restored[2],
+                    "role": restored[5],
+                    "status": restored[6],
+                }
+                st.session_state.auth_token = token_from_url
+        else:
+            # stale/invalid token -> clear from URL
+            del st.query_params["auth"]
+
+if st.session_state.auth_user is None:
     render_auth_screen()
     st.stop()
 
@@ -720,7 +765,12 @@ if st.session_state.auth_user is not None:
     # Sync role/status on each run.
     fresh_user = get_user_by_id(st.session_state.auth_user["id"])
     if not fresh_user or fresh_user[6] != "approved":
+        if st.session_state.auth_token:
+            drop_runtime_session(st.session_state.auth_token)
         st.session_state.auth_user = None
+        st.session_state.auth_token = None
+        if "auth" in st.query_params:
+            del st.query_params["auth"]
         st.warning("Доступ отозван или аккаунт не одобрен.")
         render_auth_screen()
         st.stop()
@@ -732,6 +782,10 @@ if st.session_state.auth_user is not None:
         "role": fresh_user[5],
         "status": fresh_user[6],
     })
+    if st.session_state.auth_token is None:
+        st.session_state.auth_token = create_runtime_session(fresh_user[0])
+    if st.query_params.get("auth") != st.session_state.auth_token:
+        st.query_params["auth"] = st.session_state.auth_token
     st.session_state.is_admin = st.session_state.auth_user.get("role") == "admin"
 
 # --- 1. ГРУППИРОВКА ДЛЯ МАКРО-УРОВНЯ ---
@@ -1146,6 +1200,11 @@ with st.sidebar:
     st.title("🎛 Меню")
     st.caption(f"👤 {st.session_state.auth_user.get('full_name')} (@{st.session_state.auth_user.get('login')})")
     if st.button("🚪 Выйти", use_container_width=True):
+        if st.session_state.auth_token:
+            drop_runtime_session(st.session_state.auth_token)
+        st.session_state.auth_token = None
+        if "auth" in st.query_params:
+            del st.query_params["auth"]
         st.session_state.auth_user = None
         st.session_state.is_admin = False
         st.rerun()
