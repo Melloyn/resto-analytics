@@ -203,6 +203,28 @@ def load_all_from_yandex(root_path):
     # Master accumulator for dropped stats (pure, no session_state)
     master_dropped = {'count': 0, 'cost': 0.0, 'items': []}
     
+    def list_items(path, limit=1000):
+        items_acc = []
+        offset = 0
+
+        while True:
+            params = {'path': path, 'limit': limit, 'offset': offset}
+            resp = requests.get(api_url, headers=headers, params=params, timeout=20)
+            if resp.status_code != 200:
+                st.warning(f"⚠️ Ошибка чтения папки '{path}' (status {resp.status_code})")
+                return items_acc
+
+            page_items = resp.json().get('_embedded', {}).get('items', [])
+            if not page_items:
+                break
+
+            items_acc.extend(page_items)
+            if len(page_items) < limit:
+                break
+            offset += limit
+
+        return items_acc
+
     # Helper: Pure function returning (processed_dfs, batch_dropped_stats)
     def process_items(files, venue_tag):
         processed = []
@@ -225,6 +247,8 @@ def load_all_from_yandex(root_path):
 
                 if error:
                     st.warning(f"{item['name']}: {error}")
+                for warn in warnings:
+                    st.info(f"{item['name']}: {warn}")
                 if df is not None:
                     df['Venue'] = venue_tag
                     processed.append(df)
@@ -240,15 +264,11 @@ def load_all_from_yandex(root_path):
         master_dropped['cost'] += source['cost']
         master_dropped['items'].extend(source['items'])
 
-    # 1. Get Root Items
-    params = {'path': root_path, 'limit': 2000}
     try:
-        response = requests.get(api_url, headers=headers, params=params, timeout=20)
-        if response.status_code != 200: 
-            st.error(f"Yandex API Error: {response.status_code}")
+        # 1. Get Root Items (with pagination)
+        items = list_items(root_path, limit=1000)
+        if not items:
             return [], master_dropped
-            
-        items = response.json().get('_embedded', {}).get('items', [])
         
         folders = [i for i in items if i['type'] == 'dir']
         root_files = [i for i in items if i['type'] == 'file' and (i['name'].endswith('.xlsx') or i['name'].endswith('.csv'))]
@@ -263,21 +283,18 @@ def load_all_from_yandex(root_path):
         def get_files_recursive(path):
             all_files_in_path = []
             try:
-                p = {'path': path, 'limit': 1000}
-                r = requests.get(api_url, headers=headers, params=p, timeout=20)
-                if r.status_code == 200:
-                    emb = r.json().get('_embedded', {})
-                    itms = emb.get('items', [])
-                    
-                    # Files in this dir
-                    files = [i for i in itms if i['type'] == 'file' and (i['name'].endswith('.xlsx') or i['name'].endswith('.csv'))]
-                    all_files_in_path.extend(files)
-                    
-                    # Subdirs to recurse
-                    dirs = [i for i in itms if i['type'] == 'dir']
-                    for d in dirs:
-                        all_files_in_path.extend(get_files_recursive(d['path']))
-            except: pass
+                itms = list_items(path, limit=1000)
+
+                # Files in this dir
+                files = [i for i in itms if i['type'] == 'file' and (i['name'].endswith('.xlsx') or i['name'].endswith('.csv'))]
+                all_files_in_path.extend(files)
+
+                # Subdirs to recurse
+                dirs = [i for i in itms if i['type'] == 'dir']
+                for d in dirs:
+                    all_files_in_path.extend(get_files_recursive(d['path']))
+            except Exception as e:
+                st.warning(f"⚠️ Ошибка обхода папки {path}: {e}")
             return all_files_in_path
 
         for folder in folders:
@@ -320,6 +337,8 @@ def load_from_local_folder(root_path):
 
                 if error:
                     st.warning(f"{filename}: {error}")
+                for warn in warnings:
+                    st.info(f"{filename}: {warn}")
                 if df is not None:
                     df['Venue'] = venue_tag
                     processed.append(df)
@@ -750,7 +769,7 @@ if st.session_state.df_full is not None:
                             except:
                                 pass
 
-                            # 2. PIE CHART (Category Distribution)
+                            # 2. PIE CHART (Category Distribution - Micro)
                             # We need to aggregate data for the pie chart
                             if 'Категория' in final_df.columns:
                                 try:
@@ -772,20 +791,55 @@ if st.session_state.df_full is not None:
                                     cat_len = len(cat_df)
                                     
                                     chart_pie.add_series({
-                                        'name':       f'Распределение по Категориям ({sort_col})',
+                                        'name':       f'Доли (Микро-Категории)',
                                         'categories': [ 'Charts', 1, 14, cat_len, 14],
                                         'values':     [ 'Charts', 1, 15, cat_len, 15],
                                         'data_labels': {'percentage': True},
                                     })
                                     
-                                    chart_pie.set_title({'name': f'Доли категорий ({sort_col})'})
+                                    chart_pie.set_title({'name': f'Доли (Микро): {sort_col}'})
                                     chart_pie.set_style(10)
                                     
                                     # Insert Pie Chart next to Column Chart
                                     charts_sheet.insert_chart('J2', chart_pie, {'x_scale': 1.5, 'y_scale': 1.5})
                                 except Exception as e_pie:
-                                    # st.sidebar.warning(f"Pie Chart Error: {e_pie}")
                                     pass
+
+                            # 3. DONUT CHART (Macro-Category Distribution)
+                            if 'Макро_Категория' in exp_df.columns: # Check original DF for Macro
+                                try:
+                                    # Aggregate
+                                    macro_df = exp_df.groupby('Макро_Категория')[sort_col].sum().reset_index().sort_values(by=sort_col, ascending=False)
+                                    
+                                    # Write Data
+                                    charts_sheet.write(0, 17, 'Макро-Группа', fmt_header) # Col R
+                                    charts_sheet.write(0, 18, sort_col, fmt_header)       # Col S
+                                    
+                                    for r_idx, row in macro_df.iterrows():
+                                        charts_sheet.write(r_idx + 1, 17, row['Макро_Категория'])
+                                        charts_sheet.write(r_idx + 1, 18, row[sort_col], fmt_money)
+                                        
+                                    # Create Donut Chart
+                                    chart_donut = workbook.add_chart({'type': 'doughnut'})
+                                    macro_len = len(macro_df)
+                                    
+                                    chart_donut.add_series({
+                                        'name':       f'Структура (Макро)',
+                                        'categories': [ 'Charts', 1, 17, macro_len, 17],
+                                        'values':     [ 'Charts', 1, 18, macro_len, 18],
+                                        'data_labels': {'percentage': True},
+                                    })
+                                    
+                                    chart_donut.set_title({'name': f'Структура Выручки (Макро)'})
+                                    chart_donut.set_style(10)
+                                    chart_donut.set_rotation(90)
+                                    
+                                    # Insert Donut Chart below Column Chart
+                                    charts_sheet.insert_chart('B18', chart_donut, {'x_scale': 1.5, 'y_scale': 1.5})
+
+                                except Exception as e_donut:
+                                    pass # Fail silently
+
 
                     except Exception as e_xlsx:
                         # FALLBACK if xlsxwriter fails (module missing? engine error?)
@@ -1039,7 +1093,7 @@ if st.session_state.df_full is not None:
             # 1. Prepare Categories List
             standard_cats = [
                 "⛔ Исключить из отчетов", # NEW: Special category to hide item
-                "🍔 Еда (Кухня)", "🍹 Коктейли", "☕ Кофе", "🍵 Чай", "🍺 Пиво Розлив", "🛁 Водка", 
+                "🍔 Еда (Кухня)", "🍹 Коктейли", "☕ Кофе", "🍵 Чай", "🍺 Пиво Розлив", "💧 Водка",
                 "🍷 Вино", "🥤 Стекло/Банка Б/А", "🚰 Розлив Б/А", "🍓 Милк/Фреш/Смузи", 
                 "🍏 Сидр ШТ", "🍾 Пиво ШТ", "🥃 Виски", "💧 Водка", "🏴‍☠️ Ром", 
                 "🌵 Текила", "🌲 Джин", "🍇 Коньяк/Бренди", "🍒 Ликер/Настойка", "🍬 Доп. ингредиенты"

@@ -24,21 +24,40 @@ def sync_from_yandex():
 
     headers = {'Authorization': f'OAuth {YANDEX_TOKEN}'}
     api_url = 'https://cloud-api.yandex.net/v1/disk/resources'
-    params = {'path': YANDEX_PATH, 'limit': 2000}
+
+    def list_items(path, limit=1000):
+        items_acc = []
+        offset = 0
+
+        while True:
+            params = {'path': path, 'limit': limit, 'offset': offset}
+            resp = requests.get(api_url, headers=headers, params=params, timeout=20)
+            if resp.status_code != 200:
+                print(f"❌ Yandex API Error [{path}]: {resp.status_code}")
+                return items_acc
+
+            page_items = resp.json().get('_embedded', {}).get('items', [])
+            if not page_items:
+                break
+
+            items_acc.extend(page_items)
+            if len(page_items) < limit:
+                break
+            offset += limit
+
+        return items_acc
     
     try:
         # 1. List files
-        response = requests.get(api_url, headers=headers, params=params, timeout=20)
-        if response.status_code != 200:
-            print(f"❌ Yandex API Error: {response.status_code}")
-            return
-
         # 2. Recursive Scan
         data_frames = []
         dropped_summary = {'count': 0, 'cost': 0.0}
         
         # Check if root has subfolders
-        items = response.json().get('_embedded', {}).get('items', [])
+        items = list_items(YANDEX_PATH, limit=1000)
+        if not items:
+            print("⚠️ No files found or failed to read root folder.")
+            return
         
         folders = [i for i in items if i['type'] == 'dir']
         root_files = [i for i in items if i['type'] == 'file' and (i['name'].endswith('.xlsx') or i['name'].endswith('.csv'))]
@@ -52,6 +71,9 @@ def sync_from_yandex():
                 if dropped:
                     dropped_summary['count'] += dropped['count']
                     dropped_summary['cost'] += dropped['cost']
+
+                for warn in warns:
+                    print(f"   ℹ️ {filename}: {warn}")
 
                 if df is not None:
                     df['Venue'] = venue
@@ -71,16 +93,23 @@ def sync_from_yandex():
         for folder in folders:
             venue_name = folder['name']
             print(f"📂 Scanning Venue: {venue_name}...")
-            
-            # List files in subfolder
-            sub_params = {'path': folder['path'], 'limit': 1000}
-            sub_resp = requests.get(api_url, headers=headers, params=sub_params, timeout=20)
-            if sub_resp.status_code == 200:
-                sub_items = sub_resp.json().get('_embedded', {}).get('items', [])
-                sub_files = [i for i in sub_items if i['type'] == 'file' and (i['name'].endswith('.xlsx') or i['name'].endswith('.csv'))]
-                
-                for item in sub_files:
-                     process_and_collect(item['file'], item['name'], venue_name)
+
+            def get_files_recursive(path):
+                all_files = []
+                path_items = list_items(path, limit=1000)
+                if not path_items:
+                    return all_files
+
+                files = [i for i in path_items if i['type'] == 'file' and (i['name'].endswith('.xlsx') or i['name'].endswith('.csv'))]
+                dirs = [i for i in path_items if i['type'] == 'dir']
+                all_files.extend(files)
+                for d in dirs:
+                    all_files.extend(get_files_recursive(d['path']))
+                return all_files
+
+            venue_files = get_files_recursive(folder['path'])
+            for item in venue_files:
+                process_and_collect(item['file'], item['name'], venue_name)
         
         if data_frames:
             full_df = pd.concat(data_frames, ignore_index=True)

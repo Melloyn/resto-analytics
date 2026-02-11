@@ -205,8 +205,8 @@ def process_single_file(file_content, filename=""):
                         break
         
         if not report_date:
-            warnings.append(f"Дата не определена, используется текущая: {filename}")
-            report_date = datetime.now()
+            warnings.append(f"Дата отчета не определена: {filename}")
+            return None, "Не удалось определить дату отчета", warnings, dropped_stats
 
         # 3. LOCATE HEADER ROW
         header_row = detect_header_row(df_raw, "Выручка с НДС")
@@ -225,8 +225,10 @@ def process_single_file(file_content, filename=""):
         df.columns = df.columns.astype(str).str.strip()
         
         # VALIDATE COLUMNS
-        if 'Выручка с НДС' not in df.columns:
-            return None, f"Не найдена колонка 'Выручка с НДС'", warnings, dropped_stats
+        required_cols = ['Количество', 'Себестоимость', 'Выручка с НДС']
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            return None, f"Не найдены обязательные колонки: {', '.join(missing_cols)}", warnings, dropped_stats
 
         # 5. CLEAN & CONVERT NUMBERS
         cols_to_num = ['Количество', 'Себестоимость', 'Выручка с НДС']
@@ -328,8 +330,9 @@ def calculate_insights(df_curr, df_prev, cur_rev, prev_rev, cur_fc):
         curr_prices = df_curr.groupby('Блюдо')['Unit_Cost'].mean()
         prev_prices = df_prev.groupby('Блюдо')['Unit_Cost'].mean()
         
-        price_changes = (curr_prices - prev_prices) / prev_prices * 100
-        price_changes = price_changes.dropna().sort_values(ascending=False)
+        safe_prev_prices = prev_prices.replace(0, np.nan)
+        price_changes = (curr_prices - safe_prev_prices) / safe_prev_prices * 100
+        price_changes = price_changes.replace([np.inf, -np.inf], np.nan).dropna().sort_values(ascending=False)
         
         if not price_changes.empty:
             top_inflator = price_changes.index[0]
