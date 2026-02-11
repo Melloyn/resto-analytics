@@ -168,6 +168,8 @@ if 'df_full' not in st.session_state:
     st.session_state.df_full = None
 if 'dropped_stats' not in st.session_state:
     st.session_state.dropped_stats = {'count': 0, 'cost': 0.0, 'items': []}
+if 'is_admin' not in st.session_state:
+    st.session_state.is_admin = False
 
 # --- 1. ГРУППИРОВКА ДЛЯ МАКРО-УРОВНЯ ---
 
@@ -395,8 +397,33 @@ if st.session_state.df_full is None and os.path.exists(CACHE_FILE):
 
 # --- 1. SIDEBAR: DATA LOADING ---
 # --- 1. SIDEBAR: DATA LOADING ---
+is_admin = st.session_state.is_admin
 with st.sidebar:
     st.title("🎛 Меню")
+
+    admin_pin = get_secret("ADMIN_PIN") or os.getenv("ADMIN_PIN")
+    if admin_pin:
+        with st.expander("🔐 Админ-доступ", expanded=False):
+            entered_pin = st.text_input("Введите PIN", type="password", key="admin_pin_input")
+            col_login, col_logout = st.columns(2)
+            with col_login:
+                if st.button("Войти", use_container_width=True):
+                    if entered_pin == admin_pin:
+                        st.session_state.is_admin = True
+                        st.success("Админ-доступ включен")
+                        st.rerun()
+                    else:
+                        st.error("Неверный PIN")
+            with col_logout:
+                if st.button("Выйти", use_container_width=True):
+                    st.session_state.is_admin = False
+                    st.rerun()
+            if st.session_state.is_admin:
+                st.caption("Статус: админ")
+    else:
+        st.session_state.is_admin = True
+
+    is_admin = st.session_state.is_admin
     
     # --- DATA SOURCE (EXPANDER) ---
     with st.expander("📂 Источник данных", expanded=False):
@@ -497,22 +524,51 @@ with st.sidebar:
             st.rerun()
             
     # --- DEBUG INFO IN SIDEBAR ---
-    with st.expander("🐞 Debug: Отброшенные", expanded=False):
-        if st.session_state.dropped_stats and st.session_state.dropped_stats['count'] > 0:
-            st.write(f"**Кол-во:** {st.session_state.dropped_stats['count']}")
-            st.write(f"**Cумма:** {st.session_state.dropped_stats['cost']:,.0f} ₽")
-            
-            # Show top items
-            items_df = pd.DataFrame(st.session_state.dropped_stats['items'])
-            if not items_df.empty:
-                items_df = items_df.sort_values(by='Себестоимость', ascending=False).head(20)
-                st.dataframe(items_df, hide_index=True)
+    if is_admin:
+        with st.expander("🐞 Debug: Отброшенные", expanded=False):
+            if st.session_state.dropped_stats and st.session_state.dropped_stats['count'] > 0:
+                st.write(f"**Кол-во:** {st.session_state.dropped_stats['count']}")
+                st.write(f"**Cумма:** {st.session_state.dropped_stats['cost']:,.0f} ₽")
+                
+                # Show top items
+                items_df = pd.DataFrame(st.session_state.dropped_stats['items'])
+                if not items_df.empty:
+                    items_df = items_df.sort_values(by='Себестоимость', ascending=False).head(20)
+                    st.dataframe(items_df, hide_index=True)
 
 
 # --- CUSTOM CATEGORY LOGIC (GLOBAL) ---
 MAPPING_FILE = "category_mapping.json"
+MAPPING_YANDEX_PATH = "RestoAnalytic/category_mapping.json"
+
+def _get_mapping_remote_path():
+    return get_secret("CATEGORY_MAPPING_PATH") or os.getenv("CATEGORY_MAPPING_PATH") or MAPPING_YANDEX_PATH
 
 def load_custom_categories():
+    token = get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
+    remote_path = _get_mapping_remote_path()
+
+    # Try remote first so mappings survive app reboot/redeploy
+    if token:
+        try:
+            headers = {'Authorization': f'OAuth {token}'}
+            dl_meta = requests.get(
+                "https://cloud-api.yandex.net/v1/disk/resources/download",
+                headers=headers,
+                params={'path': remote_path},
+                timeout=15
+            )
+            if dl_meta.status_code == 200:
+                href = dl_meta.json().get("href")
+                if href:
+                    dl_resp = requests.get(href, timeout=15)
+                    if dl_resp.status_code == 200 and dl_resp.text.strip():
+                        data = json.loads(dl_resp.text)
+                        if isinstance(data, dict):
+                            return data
+        except Exception:
+            pass
+
     if os.path.exists(MAPPING_FILE):
         try:
             with open(MAPPING_FILE, 'r', encoding='utf-8') as f:
@@ -523,8 +579,34 @@ def load_custom_categories():
 def save_custom_categories(new_map):
     current_map = load_custom_categories()
     current_map.update(new_map)
+    payload = json.dumps(current_map, ensure_ascii=False, indent=4)
+
+    token = get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
+    remote_path = _get_mapping_remote_path()
+    saved_remote = False
+
+    if token:
+        try:
+            headers = {'Authorization': f'OAuth {token}'}
+            up_meta = requests.get(
+                "https://cloud-api.yandex.net/v1/disk/resources/upload",
+                headers=headers,
+                params={'path': remote_path, 'overwrite': 'true'},
+                timeout=15
+            )
+            if up_meta.status_code == 200:
+                href = up_meta.json().get("href")
+                if href:
+                    up_resp = requests.put(href, data=payload.encode('utf-8'), timeout=20)
+                    saved_remote = up_resp.status_code in (200, 201, 202)
+        except Exception:
+            saved_remote = False
+
+    # Keep local fallback for development
     with open(MAPPING_FILE, 'w', encoding='utf-8') as f:
-        json.dump(current_map, f, ensure_ascii=False, indent=4)
+        f.write(payload)
+
+    return saved_remote
 
 # Load and Apply Custom Categories globally to df_full
 if st.session_state.df_full is not None:
@@ -1082,6 +1164,10 @@ if st.session_state.df_full is not None:
         # --- VISUAL CATEGORY EDITOR (Relocated) ---
         st.write("---")
         st.subheader("🛠 Разбор нераспознанных блюд ('Прочее')")
+
+        if not is_admin:
+            st.info("Раздел доступен только администратору.")
+            st.stop()
         
         # Find items in "Other" based on current df_items (which is scoped by date/venue)
         # OR better: use global df_full to find ALL unmapped items to fix them once
