@@ -978,6 +978,8 @@ with st.sidebar:
                 if not get_secret("YANDEX_TOKEN"):
                      st.error("⚠️ Нет токена!")
                 else:
+                    # Always refresh Yandex listing/parsing on explicit user action.
+                    load_all_from_yandex.clear()
                     with main_loader_slot.container():
                         show_loading_overlay("Скачиваем данные с Яндекс.Диска и собираем витрину…")
                     temp_data, dropped_load = load_all_from_yandex(yandex_path)
