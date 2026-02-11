@@ -320,6 +320,10 @@ if 'dropped_stats' not in st.session_state:
     st.session_state.dropped_stats = {'count': 0, 'cost': 0.0, 'items': []}
 if 'is_admin' not in st.session_state:
     st.session_state.is_admin = False
+if 'df_version' not in st.session_state:
+    st.session_state.df_version = 0
+if 'categories_applied_sig' not in st.session_state:
+    st.session_state.categories_applied_sig = None
 
 # --- 1. ГРУППИРОВКА ДЛЯ МАКРО-УРОВНЯ ---
 
@@ -342,6 +346,42 @@ def generate_insights(df_curr, df_prev, cur_rev, prev_rev, cur_fc):
             # Some messages in data_engine have bold markdown, st handles that fine.
             if note['level'] in level_map:
                 level_map[note['level']](note['message'])
+
+@st.cache_data(ttl=600, show_spinner=False)
+def compute_inflation_metrics(df_full_scope, df_view_scope):
+    if df_full_scope is None or df_full_scope.empty or df_view_scope is None or df_view_scope.empty:
+        return 0.0, 0.0, pd.DataFrame()
+
+    price_history = (
+        df_full_scope.groupby(['Блюдо', 'Дата_Отчета'], observed=True)['Unit_Cost']
+        .mean()
+        .reset_index()
+        .sort_values(['Блюдо', 'Дата_Отчета'])
+    )
+    if price_history.empty:
+        return 0.0, 0.0, pd.DataFrame()
+
+    item_prices = price_history.groupby('Блюдо', observed=True)['Unit_Cost'].agg(first_price='first', last_price='last').reset_index()
+    sold_qty = df_view_scope.groupby('Блюдо', observed=True)['Количество'].sum().reset_index().rename(columns={'Количество': 'qty_sold'})
+
+    merged = item_prices.merge(sold_qty, on='Блюдо', how='inner')
+    merged = merged[(merged['first_price'] > 5) & (merged['qty_sold'] > 0)]
+    if merged.empty:
+        return 0.0, 0.0, pd.DataFrame()
+
+    merged['diff_abs'] = merged['last_price'] - merged['first_price']
+    merged['Рост %'] = (merged['diff_abs'] / merged['first_price']) * 100
+    merged['Эффект (₽)'] = merged['diff_abs'] * merged['qty_sold']
+
+    total_gross_loss = float(merged.loc[merged['Эффект (₽)'] > 0, 'Эффект (₽)'].sum())
+    total_gross_save = float((-merged.loc[merged['Эффект (₽)'] < 0, 'Эффект (₽)']).sum())
+
+    merged = merged[merged['Рост %'].abs() > 1]
+    if merged.empty:
+        return total_gross_loss, total_gross_save, pd.DataFrame()
+
+    df_inf = merged.rename(columns={'Блюдо': 'Товар', 'first_price': 'Старая цена', 'last_price': 'Новая цена'})
+    return total_gross_loss, total_gross_save, df_inf[['Товар', 'Старая цена', 'Новая цена', 'Рост %', 'Эффект (₽)']]
 
 @st.cache_data(ttl=3600, show_spinner="Скачиваем данные с Яндекс.Диска...")
 def load_all_from_yandex(root_path):
@@ -536,11 +576,42 @@ def load_from_local_folder(root_path):
         st.error(f"Error loading local files: {e}")
         return [], {'count': 0, 'cost': 0.0, 'items': []}
 
+def optimize_dataframe(df):
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+
+    if 'Дата_Отчета' in out.columns:
+        out['Дата_Отчета'] = pd.to_datetime(out['Дата_Отчета'], errors='coerce')
+
+    float_cols = ['Себестоимость', 'Выручка с НДС', 'Unit_Cost', 'Фудкост']
+    int_cols = ['Количество']
+    for col in float_cols:
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors='coerce').fillna(0).astype('float32')
+    for col in int_cols:
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors='coerce').fillna(0).astype('int32')
+
+    for col in ['Категория', 'Venue', 'Поставщик', 'Блюдо', 'Макро_Категория']:
+        if col in out.columns:
+            nunique = out[col].nunique(dropna=False)
+            if 0 < nunique < len(out) * 0.8:
+                out[col] = out[col].astype('category')
+
+    return out
+
+def set_df_full(df):
+    st.session_state.df_full = optimize_dataframe(df)
+    st.session_state.df_version += 1
+    st.session_state.categories_applied_sig = None
+
 # --- AUTO-LOAD CACHE ON STARTUP ---
 CACHE_FILE = "data_cache.parquet"
 if st.session_state.df_full is None and os.path.exists(CACHE_FILE):
     try:
-        st.session_state.df_full = pd.read_parquet(CACHE_FILE)
+        set_df_full(pd.read_parquet(CACHE_FILE))
         # Optional: st.toast("Данные восстановлены из кеша", icon="💾")
     except Exception:
         pass # Fail silently, user can load manually
@@ -588,7 +659,7 @@ with st.sidebar:
                 else:
                     temp_data, dropped_load = load_all_from_yandex(yandex_path)
                     if temp_data:
-                        st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
+                        set_df_full(pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета'))
                         
                         # Update Stats
                         if dropped_load:
@@ -605,7 +676,7 @@ with st.sidebar:
             if st.button(" Сканировать папку", type="primary", use_container_width=True):
                 temp_data, dropped_load = load_from_local_folder(local_path)
                 if temp_data:
-                    st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
+                    set_df_full(pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета'))
                     
                     # Update Stats
                     if dropped_load:
@@ -642,7 +713,7 @@ with st.sidebar:
                     if df is not None: temp_data.append(df)
                 
                 if temp_data:
-                    st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
+                    set_df_full(pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета'))
                     st.success("Файлы обработаны!")
                     st.rerun()
 
@@ -661,7 +732,7 @@ with st.sidebar:
         with col2:
             if st.button("🚀 Load", use_container_width=True):
                 if os.path.exists(CACHE_FILE):
-                     st.session_state.df_full = pd.read_parquet(CACHE_FILE)
+                     set_df_full(pd.read_parquet(CACHE_FILE))
                      st.success("ОК!")
                      st.rerun()
                 else:
@@ -671,6 +742,8 @@ with st.sidebar:
             st.cache_data.clear()
             st.session_state.df_full = None
             st.session_state.dropped_stats = {'count': 0, 'cost': 0.0, 'items': []}
+            st.session_state.df_version = 0
+            st.session_state.categories_applied_sig = None
             st.rerun()
             
     # --- DEBUG INFO IN SIDEBAR ---
@@ -757,18 +830,25 @@ def save_custom_categories(new_map):
     with open(MAPPING_FILE, 'w', encoding='utf-8') as f:
         f.write(payload)
 
+    load_custom_categories.clear()
+    st.session_state.categories_applied_sig = None
+
     return saved_remote
 
 # Load and Apply Custom Categories globally to df_full
 if st.session_state.df_full is not None:
     custom_cats = load_custom_categories()
-    if custom_cats:
-        mapped = st.session_state.df_full['Блюдо'].map(custom_cats)
-        st.session_state.df_full['Категория'] = mapped.fillna(st.session_state.df_full['Категория'])
-        
+    mapping_sig = json.dumps(custom_cats, sort_keys=True, ensure_ascii=False) if custom_cats else ""
+    apply_sig = f"{st.session_state.df_version}:{mapping_sig}"
+
+    if st.session_state.categories_applied_sig != apply_sig:
+        if custom_cats:
+            mapped = st.session_state.df_full['Блюдо'].astype(str).map(custom_cats)
+            st.session_state.df_full['Категория'] = mapped.fillna(st.session_state.df_full['Категория'])
+
         # --- GLOBAL FILTER: DELETE IGNORED ITEMS ---
-        # Remove rows where category is "⛔ Исключить из отчетов"
         st.session_state.df_full = st.session_state.df_full[st.session_state.df_full['Категория'] != "⛔ Исключить из отчетов"]
+        st.session_state.categories_applied_sig = apply_sig
 
 # --- ОСНОВНАЯ ЛОГИКА ---
 tg_token = get_secret("TELEGRAM_TOKEN")
@@ -1169,27 +1249,7 @@ if st.session_state.df_full is not None:
              target_ts = pd.to_datetime(target_date)
 
         df_inflation_scope = df_full[df_full['Дата_Отчета'] <= target_ts]
-        price_history = df_inflation_scope.groupby(['Блюдо', 'Дата_Отчета'])['Unit_Cost'].mean().reset_index()
-        unique_items = price_history['Блюдо'].unique()
-        inflation_data = []
-        total_gross_loss = 0
-        total_gross_save = 0
-
-        for item in unique_items:
-            p_data = price_history[price_history['Блюдо'] == item].sort_values('Дата_Отчета')
-            if len(p_data) > 1:
-                first_price = p_data.iloc[0]['Unit_Cost']
-                last_price = p_data.iloc[-1]['Unit_Cost']
-                qty_sold = df_view[df_view['Блюдо'] == item]['Количество'].sum()
-
-                if first_price > 5 and qty_sold > 0: 
-                    diff_abs = last_price - first_price
-                    diff_pct = (diff_abs / first_price) * 100
-                    financial_impact = diff_abs * qty_sold
-                    if financial_impact > 0: total_gross_loss += financial_impact
-                    else: total_gross_save += abs(financial_impact)
-                    if abs(diff_pct) > 1:
-                        inflation_data.append({'Товар': item, 'Старая цена': first_price, 'Новая цена': last_price, 'Рост %': diff_pct, 'Эффект (₽)': financial_impact})
+        total_gross_loss, total_gross_save, df_inf = compute_inflation_metrics(df_inflation_scope, df_view)
         
         net_result = total_gross_loss - total_gross_save
         inf1, inf2, inf3 = st.columns(3)
@@ -1198,8 +1258,7 @@ if st.session_state.df_full is not None:
         inf3.metric("🏁 Чистый Итог", f"-{net_result:,.0f} ₽" if net_result > 0 else f"+{abs(net_result):,.0f} ₽", delta_color="inverse")
         
         st.write("---")
-        if inflation_data:
-            df_inf = pd.DataFrame(inflation_data)
+        if not df_inf.empty:
             col_up, col_down = st.columns(2)
             with col_up:
                 st.write("### 🔺 Топ-30: Цена выросла (Убыток)")
@@ -1369,7 +1428,6 @@ if st.session_state.df_full is not None:
                     # save_custom_categories(new_map) 
                     # st.session_state.custom_cats = load_custom_categories() 
                     save_custom_categories(new_map)
-                    st.cache_data.clear()
                     st.success(f"✅ Сохранено {len(new_map)} исправлений! Перезагружаю...")
                     st.rerun()
                 else:
