@@ -549,8 +549,34 @@ if st.session_state.df_full is not None:
             start_d, end_d = date_range
             df_current = df_full[(df_full['Дата_Отчета'].dt.date >= start_d) & (df_full['Дата_Отчета'].dt.date <= end_d)]
             target_date = end_d
-            prev_label = "Сравнение недоступно в режиме интервала"
-            compare_mode = "Нет" # Для графика
+            
+            # --- COMPARISON LOGIC ---
+            compare_options = ["Нет", "Предыдущий период", "Тот же период (год назад)"]
+            compare_mode = st.sidebar.selectbox("Сравнить с:", compare_options)
+            
+            if compare_mode == "Предыдущий период":
+                delta = end_d - start_d
+                prev_end = start_d - timedelta(days=1)
+                prev_start = prev_end - delta
+                prev_label = f"{prev_start.strftime('%d.%m')} - {prev_end.strftime('%d.%m')}"
+                
+                df_prev = df_full[(df_full['Дата_Отчета'].dt.date >= prev_start) & (df_full['Дата_Отчета'].dt.date <= prev_end)]
+                
+            elif compare_mode == "Тот же период (год назад)":
+                # Simple Shift - 1 Year
+                def safe_year_sub(d):
+                    try: return d.replace(year=d.year - 1)
+                    except ValueError: return d.replace(year=d.year - 1, day=28)
+                
+                prev_start = safe_year_sub(start_d)
+                prev_end = safe_year_sub(end_d)
+                prev_label = f"{prev_start.strftime('%d.%m.%y')} - {prev_end.strftime('%d.%m.%y')}"
+                
+                df_prev = df_full[(df_full['Дата_Отчета'].dt.date >= prev_start) & (df_full['Дата_Отчета'].dt.date <= prev_end)]
+            else:
+                prev_label = "Без сравнения"
+                df_prev = pd.DataFrame()
+
         else:
             st.warning("Выберите корректный интервал")
 
