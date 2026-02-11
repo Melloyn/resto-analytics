@@ -1222,6 +1222,8 @@ if st.session_state.df_full is not None:
         df_prev = pd.DataFrame()
         prev_label = ""
         target_date = datetime.now()
+        period_title_base = "Произвольный период"
+        selected_day = None
         
         if period_mode == "📅 Месяц (Сравнение)":
             df_full['Month_Year'] = df_full['Дата_Отчета'].dt.to_period('M')
@@ -1229,22 +1231,53 @@ if st.session_state.df_full is not None:
             
             if available_months:
                 selected_month = st.selectbox("Выбери месяц:", available_months, format_func=lambda x: x.strftime('%B %Y'))
-                compare_options = ["Предыдущий месяц", "Тот же месяц (год назад)", "Нет"]
-                compare_mode = st.selectbox("Сравнить с:", compare_options)
-                
-                # Текущий
-                df_current = df_full[df_full['Month_Year'] == selected_month]
-                target_date = df_current['Дата_Отчета'].max()
-                
-                # Сравнение
-                if compare_mode == "Предыдущий месяц":
-                    prev_month = selected_month - 1
-                    df_prev = df_full[df_full['Month_Year'] == prev_month]
-                    prev_label = prev_month.strftime('%B %Y')
-                elif compare_mode == "Тот же месяц (год назад)":
-                    prev_month = selected_month - 12
-                    df_prev = df_full[df_full['Month_Year'] == prev_month]
-                    prev_label = prev_month.strftime('%B %Y')
+                scope_mode = st.radio("Период:", ["Весь месяц", "Один день"], horizontal=True)
+
+                if scope_mode == "Один день":
+                    month_days = sorted(df_full[df_full['Month_Year'] == selected_month]['Дата_Отчета'].dt.date.unique())
+                    if month_days:
+                        selected_day = st.selectbox(
+                            "Выбери день:",
+                            month_days,
+                            format_func=lambda d: d.strftime('%d.%m.%Y')
+                        )
+                        df_current = df_full[df_full['Дата_Отчета'].dt.date == selected_day]
+                        target_date = selected_day
+                        period_title_base = selected_day.strftime('%d.%m.%Y')
+
+                        compare_options = ["Предыдущий день", "Тот же день (год назад)", "Нет"]
+                        compare_mode = st.selectbox("Сравнить с:", compare_options)
+
+                        if compare_mode == "Предыдущий день":
+                            prev_day = selected_day - timedelta(days=1)
+                            df_prev = df_full[df_full['Дата_Отчета'].dt.date == prev_day]
+                            prev_label = prev_day.strftime('%d.%m.%Y')
+                        elif compare_mode == "Тот же день (год назад)":
+                            def safe_year_sub(d):
+                                try: return d.replace(year=d.year - 1)
+                                except ValueError: return d.replace(year=d.year - 1, day=28)
+
+                            prev_day = safe_year_sub(selected_day)
+                            df_prev = df_full[df_full['Дата_Отчета'].dt.date == prev_day]
+                            prev_label = prev_day.strftime('%d.%m.%Y')
+                else:
+                    compare_options = ["Предыдущий месяц", "Тот же месяц (год назад)", "Нет"]
+                    compare_mode = st.selectbox("Сравнить с:", compare_options)
+
+                    # Текущий
+                    df_current = df_full[df_full['Month_Year'] == selected_month]
+                    target_date = df_current['Дата_Отчета'].max()
+                    period_title_base = selected_month.strftime('%B %Y')
+
+                    # Сравнение
+                    if compare_mode == "Предыдущий месяц":
+                        prev_month = selected_month - 1
+                        df_prev = df_full[df_full['Month_Year'] == prev_month]
+                        prev_label = prev_month.strftime('%B %Y')
+                    elif compare_mode == "Тот же месяц (год назад)":
+                        prev_month = selected_month - 12
+                        df_prev = df_full[df_full['Month_Year'] == prev_month]
+                        prev_label = prev_month.strftime('%B %Y')
         else:
             # Режим ИНТЕРВАЛ
             min_date = df_full['Дата_Отчета'].min().date()
@@ -1271,6 +1304,7 @@ if st.session_state.df_full is not None:
             else:
                 df_current = df_full[(df_full['Дата_Отчета'].dt.date >= start_d) & (df_full['Дата_Отчета'].dt.date <= end_d)]
                 target_date = end_d
+                period_title_base = f"{start_d.strftime('%d.%m.%Y')} - {end_d.strftime('%d.%m.%Y')}"
 
                 # --- COMPARISON LOGIC ---
                 compare_options = ["Нет", "Предыдущий период", "Тот же период (год назад)"]
@@ -1543,7 +1577,10 @@ if st.session_state.df_full is not None:
         delta_margin = cur_margin - prev_margin if not df_prev.empty else 0
         delta_fc = cur_fc - prev_fc if not df_prev.empty else 0
         
-        sub_title = "Произвольный период" if period_mode == "📆 Интервал дат" else f"{selected_month.strftime('%B %Y')} vs {prev_label if not df_prev.empty else 'Нет данных'}"
+        if not df_prev.empty:
+            sub_title = f"{period_title_base} vs {prev_label}"
+        else:
+            sub_title = f"{period_title_base} (без сравнения)"
         
         # --- SMART INSIGHTS ---
         generate_insights(df_current, df_prev, cur_rev, prev_rev, cur_fc)
@@ -1557,7 +1594,7 @@ if st.session_state.df_full is not None:
         kpi4.metric("🧾 Позиций", len(df_current))
 
         # --- ГРАФИК ДИНАМИКИ ПО ДНЯМ ---
-        if period_mode == "📅 Месяц (Сравнение)" and not df_current.empty:
+        if period_mode == "📅 Месяц (Сравнение)" and not df_current.empty and ('scope_mode' not in locals() or scope_mode == "Весь месяц"):
             with st.expander("📈 Динамика Выручки (День за днём)", expanded=False):
                 # Подготовка данных
                 df_chart_cur = df_current.groupby(df_current['Дата_Отчета'].dt.day)['Выручка с НДС'].sum().cumsum()
@@ -1577,7 +1614,13 @@ if st.session_state.df_full is not None:
         target_date = datetime.now()
 
     if period_mode == "📅 Месяц (Сравнение)":
-        period_key = ("month", str(selected_month) if 'selected_month' in locals() else "none", compare_mode if 'compare_mode' in locals() else "none")
+        period_key = (
+            "month",
+            str(selected_month) if 'selected_month' in locals() else "none",
+            scope_mode if 'scope_mode' in locals() else "Весь месяц",
+            str(selected_day) if selected_day else "none",
+            compare_mode if 'compare_mode' in locals() else "none",
+        )
     else:
         if isinstance(date_range, tuple) and len(date_range) == 2:
             period_key = ("range", str(date_range[0]), str(date_range[1]), compare_mode if 'compare_mode' in locals() else "none")
