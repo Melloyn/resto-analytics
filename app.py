@@ -15,13 +15,29 @@ from datetime import datetime, timedelta
 def update_chart_layout(fig):
     fig.update_layout(
         template="plotly_dark",
-        font=dict(family="Inter", size=12),
-        margin=dict(l=20, r=20, t=40, b=20),
+        font=dict(family="Inter, sans-serif", size=13, color="#E0E0E0"),
+        margin=dict(l=20, r=20, t=50, b=20),
         paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(255,255,255,0.02)", # Slight highlight
         hovermode="x unified",
-        xaxis=dict(showgrid=False, zeroline=False),
-        yaxis=dict(showgrid=True, gridcolor="#333", zeroline=False),
+        xaxis=dict(
+            showgrid=False, 
+            zeroline=False, 
+            showline=True, 
+            linecolor="rgba(255,255,255,0.2)"
+        ),
+        yaxis=dict(
+            showgrid=True, 
+            gridcolor="rgba(255,255,255,0.08)", 
+            zeroline=False
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        )
     )
     return fig
 
@@ -109,6 +125,30 @@ def setup_style():
             background: linear-gradient(135deg, #FF4B4B 0%, #FF2B2B 100%);
             border: none;
             box-shadow: 0 4px 12px rgba(255, 75, 75, 0.3);
+            transition: all 0.3s ease;
+        }
+        button[kind="primary"]:hover {
+            box-shadow: 0 6px 16px rgba(255, 75, 75, 0.5);
+            transform: translateY(-2px);
+        }
+
+        /* --- SIDEBAR ELEMENTS --- */
+        .stSelectbox label, .stRadio label {
+            font-weight: 600 !important;
+            color: rgba(255,255,255,0.9) !important;
+        }
+
+        /* --- TABLE STYLING --- */
+        [data-testid="stDataFrame"] {
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            overflow: hidden;
+        }
+        
+        /* --- STREAMLIT HEADER --- */
+        header[data-testid="stHeader"] {
+            background: transparent !important;
+            backdrop-filter: blur(5px);
         }
 
         /* Remove Deploy Button & Padding */
@@ -598,6 +638,37 @@ if st.session_state.df_full is not None:
                 success, msg = telegram_utils.send_to_all(tg_token, tg_chat, report_text)
                 if success: st.sidebar.success("Отправлено!")
                 else: st.sidebar.error(msg)
+    
+    st.sidebar.divider()
+    st.sidebar.header("📥 Экспорт")
+    
+    if not df_current.empty:
+        # Function to convert DF to Excel with fallback
+        @st.cache_data
+        def convert_df(df):
+            output = BytesIO()
+            try:
+                # Try openpyxl first
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    df.to_excel(writer, index=False, sheet_name='Report')
+            except Exception as e:
+                # Fallback or error
+                st.sidebar.error(f"Ошибка экспорта: {e}")
+                return None
+            return output.getvalue()
+
+        excel_data = convert_df(df_current)
+        
+        if excel_data:
+            st.sidebar.download_button(
+                label="📊 Скачать Excel (Текущая выборка)",
+                data=excel_data,
+                file_name=f"report_{target_date.strftime('%Y-%m-%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+    else:
+        st.sidebar.info("Нет данных для экспорта.")
 
     # --- KPI DISPLAY ---
     if not df_current.empty:
