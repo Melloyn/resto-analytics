@@ -526,7 +526,7 @@ tg_chat = get_secret("TELEGRAM_CHAT_ID")
 if st.session_state.df_full is not None:
 
     # --- SIDEBAR: FILTERS (EXPANDER) ---
-    with st.sidebar.expander("� Фильтры периода", expanded=True):
+    with st.sidebar.expander("� Фильтры периода", expanded=False):
 
         # 1. VENUE SELECTOR
         selected_venue = "Все заведения"
@@ -623,7 +623,7 @@ if st.session_state.df_full is not None:
                 st.warning("Выберите корректный интервал")
 
     # --- SIDEBAR: ACTIONS & EXPORT (EXPANDER) ---
-    with st.sidebar.expander("⚡ Действия и Экспорт", expanded=True):
+    with st.sidebar.expander("⚡ Действия и Экспорт", expanded=False):
         
         if st.button("📤 Отчет в Telegram", use_container_width=True):
             if not tg_token or not tg_chat:
@@ -727,37 +727,66 @@ if st.session_state.df_full is not None:
                                 worksheet.set_column(i, i, width, fmt)
 
                             # --- CHARTS ---
-                            # Create a chart object.
-                            chart = workbook.add_chart({'type': 'column'})
-
-                            # Data range for top 10
-                            max_row = min(10, len(final_df))
+                            charts_sheet = workbook.add_worksheet('Charts')
                             
-                            # Values: Column based on sort_col. 
-                            # We need index of sort_col.
+                            # 1. COLUMN CHART (Top 10 Items)
+                            chart_col = workbook.add_chart({'type': 'column'})
+                            max_row = min(10, len(final_df))
                             try:
                                 val_idx = final_df.columns.get_loc(sort_col)
-                                
-                                chart.add_series({
+                                chart_col.add_series({
                                     'name':       [ 'Report', 0, val_idx],
                                     'categories': [ 'Report', 1, 0, max_row, 0], # Top 10 names
                                     'values':     [ 'Report', 1, val_idx, max_row, val_idx], # Top 10 values
                                     'data_labels': {'value': True},
                                     'gap':        30,
                                 })
-
-                                chart.set_title ({'name': f'Топ-10: {sort_col}'})
-                                chart.set_x_axis({'name': 'Позиция', 'major_gridlines': {'visible': False}})
-                                chart.set_y_axis({'name': sort_col, 'major_gridlines': {'visible': True, 'line': {'style': 'dash'}}})
-                                chart.set_legend({'position': 'none'})
-                                chart.set_style(11)
-
-                                # Insert chart on a new sheet
-                                charts_sheet = workbook.add_worksheet('Charts')
-                                charts_sheet.insert_chart('B2', chart, {'x_scale': 2.5, 'y_scale': 2})
+                                chart_col.set_title ({'name': f'Топ-10: {sort_col}'})
+                                chart_col.set_x_axis({'name': 'Позиция', 'major_gridlines': {'visible': False}})
+                                chart_col.set_y_axis({'name': sort_col, 'major_gridlines': {'visible': True, 'line': {'style': 'dash'}}})
+                                chart_col.set_legend({'position': 'none'})
+                                chart_col.set_style(11)
+                                charts_sheet.insert_chart('B2', chart_col, {'x_scale': 2.5, 'y_scale': 2})
                             except:
-                                pass # Fail silently if chart logic breaks
-                    
+                                pass
+
+                            # 2. PIE CHART (Category Distribution)
+                            # We need to aggregate data for the pie chart
+                            if 'Категория' in final_df.columns:
+                                try:
+                                    # Group by Category and Sum Sort Column (e.g. Revenue)
+                                    cat_df = final_df.groupby('Категория')[sort_col].sum().reset_index().sort_values(by=sort_col, ascending=False)
+                                    
+                                    # Write summarized data to Charts sheet (hidden/side)
+                                    # Start writing at row 20 (below chart) or side
+                                    # Let's write it to columns O and P on Charts sheet
+                                    charts_sheet.write(0, 14, 'Категория', fmt_header)
+                                    charts_sheet.write(0, 15, sort_col, fmt_header)
+                                    
+                                    for r_idx, row in cat_df.iterrows():
+                                        charts_sheet.write(r_idx + 1, 14, row['Категория'])
+                                        charts_sheet.write(r_idx + 1, 15, row[sort_col], fmt_money)
+                                        
+                                    # Create Pie Chart
+                                    chart_pie = workbook.add_chart({'type': 'pie'})
+                                    cat_len = len(cat_df)
+                                    
+                                    chart_pie.add_series({
+                                        'name':       f'Распределение по Категориям ({sort_col})',
+                                        'categories': [ 'Charts', 1, 14, cat_len, 14],
+                                        'values':     [ 'Charts', 1, 15, cat_len, 15],
+                                        'data_labels': {'percentage': True},
+                                    })
+                                    
+                                    chart_pie.set_title({'name': f'Доли категорий ({sort_col})'})
+                                    chart_pie.set_style(10)
+                                    
+                                    # Insert Pie Chart next to Column Chart
+                                    charts_sheet.insert_chart('J2', chart_pie, {'x_scale': 1.5, 'y_scale': 1.5})
+                                except Exception as e_pie:
+                                    # st.sidebar.warning(f"Pie Chart Error: {e_pie}")
+                                    pass
+
                     except Exception as e_xlsx:
                         # FALLBACK if xlsxwriter fails (module missing? engine error?)
                         # Use openpyxl but export FINAL_DF (filtered/sorted)
