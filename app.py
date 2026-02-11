@@ -255,6 +255,13 @@ def setup_style():
             border-radius: 0 0 14px 14px !important;
         }
 
+        /* In sidebar we keep popovers/calendars visible, otherwise date picker clips */
+        [data-testid="stSidebar"] [data-testid="stExpander"],
+        [data-testid="stSidebar"] [data-testid="stExpander"] details,
+        [data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stExpanderDetails"] {
+            overflow: visible !important;
+        }
+
         .streamlit-expanderHeader {
             background-color: transparent;
             border-radius: 12px;
@@ -1242,42 +1249,55 @@ if st.session_state.df_full is not None:
             # Режим ИНТЕРВАЛ
             min_date = df_full['Дата_Отчета'].min().date()
             max_date = df_full['Дата_Отчета'].max().date()
-            date_range = st.date_input("Выберите даты:", value=(min_date, max_date), min_value=min_date, max_value=max_date)
-            
-            if isinstance(date_range, tuple) and len(date_range) == 2:
-                start_d, end_d = date_range
+            date_col1, date_col2 = st.columns(2)
+            start_d = date_col1.date_input(
+                "С",
+                value=min_date,
+                min_value=min_date,
+                max_value=max_date,
+                key=f"start_date_{st.session_state.df_version}"
+            )
+            end_d = date_col2.date_input(
+                "По",
+                value=max_date,
+                min_value=min_date,
+                max_value=max_date,
+                key=f"end_date_{st.session_state.df_version}"
+            )
+            date_range = (start_d, end_d)
+
+            if start_d > end_d:
+                st.warning("Дата начала не может быть позже даты окончания")
+            else:
                 df_current = df_full[(df_full['Дата_Отчета'].dt.date >= start_d) & (df_full['Дата_Отчета'].dt.date <= end_d)]
                 target_date = end_d
-                
+
                 # --- COMPARISON LOGIC ---
                 compare_options = ["Нет", "Предыдущий период", "Тот же период (год назад)"]
                 compare_mode = st.selectbox("Сравнить с:", compare_options)
-                
+
                 if compare_mode == "Предыдущий период":
                     delta = end_d - start_d
                     prev_end = start_d - timedelta(days=1)
                     prev_start = prev_end - delta
                     prev_label = f"{prev_start.strftime('%d.%m')} - {prev_end.strftime('%d.%m')}"
-                    
+
                     df_prev = df_full[(df_full['Дата_Отчета'].dt.date >= prev_start) & (df_full['Дата_Отчета'].dt.date <= prev_end)]
-                    
+
                 elif compare_mode == "Тот же период (год назад)":
                     # Simple Shift - 1 Year
                     def safe_year_sub(d):
                         try: return d.replace(year=d.year - 1)
                         except ValueError: return d.replace(year=d.year - 1, day=28)
-                    
+
                     prev_start = safe_year_sub(start_d)
                     prev_end = safe_year_sub(end_d)
                     prev_label = f"{prev_start.strftime('%d.%m.%y')} - {prev_end.strftime('%d.%m.%y')}"
-                    
+
                     df_prev = df_full[(df_full['Дата_Отчета'].dt.date >= prev_start) & (df_full['Дата_Отчета'].dt.date <= prev_end)]
                 else:
                     prev_label = "Без сравнения"
                     df_prev = pd.DataFrame()
-    
-            else:
-                st.warning("Выберите корректный интервал")
 
     # --- SIDEBAR: ACTIONS & EXPORT (EXPANDER) ---
     with st.sidebar.expander("⚡ Действия и Экспорт", expanded=False):
