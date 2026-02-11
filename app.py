@@ -68,6 +68,11 @@ def setup_style():
             --text-soft: rgba(234, 244, 255, 0.72);
             --accent: #73c3ff;
             --accent-2: #9fe5ff;
+            --ease-fluid: cubic-bezier(0.22, 1, 0.36, 1);
+            --ease-soft: cubic-bezier(0.25, 0.9, 0.3, 1);
+            --anim-fast: 220ms;
+            --anim-mid: 340ms;
+            --anim-slow: 520ms;
         }
 
         html, body, .stApp {
@@ -114,14 +119,14 @@ def setup_style():
             z-index: 1;
             padding-top: 1.6rem;
             padding-bottom: 2rem;
-            animation: pageSlideIn 380ms cubic-bezier(0.2, 0.7, 0.2, 1);
+            animation: pageSlideIn var(--anim-mid) var(--ease-fluid);
         }
 
         @keyframes pageSlideIn {
             from {
                 opacity: 0;
-                transform: translate3d(16px, 0, 0) scale(0.992);
-                filter: blur(5px);
+                transform: translate3d(12px, 0, 0) scale(0.995);
+                filter: blur(4px);
             }
             to {
                 opacity: 1;
@@ -133,11 +138,11 @@ def setup_style():
         @keyframes glassFadeUp {
             from {
                 opacity: 0;
-                transform: translateY(8px);
+                transform: translateY(10px) scale(0.995);
             }
             to {
                 opacity: 1;
-                transform: translateY(0);
+                transform: translateY(0) scale(1);
             }
         }
 
@@ -168,7 +173,7 @@ def setup_style():
         [data-testid="stVerticalBlock"] > [data-testid="element-container"] > div:has([data-testid="stDataFrame"]) {
             border: 1px solid var(--glass-border) !important;
             box-shadow: var(--glass-shadow) !important;
-            animation: glassFadeUp 320ms ease-out;
+            animation: glassFadeUp var(--anim-mid) var(--ease-fluid);
         }
 
         [data-testid="stMetric"] {
@@ -179,7 +184,7 @@ def setup_style():
             -webkit-backdrop-filter: blur(18px) saturate(140%);
             padding: 15px !important;
             border-radius: 18px !important;
-            transition: transform 0.18s ease, box-shadow 0.22s ease, border-color 0.2s ease;
+            transition: transform var(--anim-fast) var(--ease-fluid), box-shadow var(--anim-mid) var(--ease-soft), border-color var(--anim-fast) ease;
         }
 
         [data-testid="stMetric"]::after {
@@ -192,7 +197,7 @@ def setup_style():
         }
 
         [data-testid="stMetric"]:hover {
-            transform: translateY(-3px) scale(1.01);
+            transform: translateY(-2px) scale(1.006);
             border-color: rgba(222, 244, 255, 0.52) !important;
             box-shadow: 0 20px 45px rgba(7, 23, 51, 0.46) !important;
             background: linear-gradient(160deg, rgba(189, 228, 255, 0.19), rgba(130, 192, 255, 0.10)) !important;
@@ -227,7 +232,8 @@ def setup_style():
             backdrop-filter: blur(13px) saturate(130%);
             -webkit-backdrop-filter: blur(13px) saturate(130%);
             box-shadow: 0 10px 32px rgba(8, 21, 48, 0.28);
-            animation: glassFadeUp 340ms ease-out;
+            animation: glassFadeUp var(--anim-mid) var(--ease-fluid);
+            transition: transform var(--anim-fast) var(--ease-fluid), box-shadow var(--anim-mid) var(--ease-soft), border-color var(--anim-fast) ease;
         }
 
         .streamlit-expanderHeader {
@@ -240,13 +246,14 @@ def setup_style():
             color: #06203e !important;
             border: 1px solid rgba(230, 247, 255, 0.6) !important;
             box-shadow: 0 10px 24px rgba(52, 148, 220, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.7);
-            transition: transform 0.17s ease, box-shadow 0.22s ease;
+            transition: transform var(--anim-fast) var(--ease-fluid), box-shadow var(--anim-mid) var(--ease-soft), filter var(--anim-fast) ease;
             font-weight: 700;
         }
 
         button[kind="primary"]:hover {
             box-shadow: 0 16px 30px rgba(60, 156, 231, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.78);
-            transform: translateY(-2px) scale(1.01);
+            transform: translateY(-1px) scale(1.005);
+            filter: saturate(1.05);
         }
 
         button[kind="secondary"] {
@@ -278,7 +285,40 @@ def setup_style():
             backdrop-filter: blur(12px);
             -webkit-backdrop-filter: blur(12px);
             box-shadow: 0 8px 30px rgba(6, 18, 41, 0.3);
-            animation: glassFadeUp 360ms ease-out;
+            animation: glassFadeUp var(--anim-mid) var(--ease-fluid);
+            transition: transform var(--anim-fast) var(--ease-fluid), box-shadow var(--anim-mid) var(--ease-soft);
+        }
+
+        [data-testid="stPlotlyChart"],
+        [data-testid="stDataFrame"],
+        [data-testid="stExpander"],
+        [data-testid="stMetric"],
+        [data-testid="stAlert"] {
+            will-change: transform, opacity;
+            transform: translateZ(0);
+            backface-visibility: hidden;
+        }
+
+        [data-testid="stVerticalBlock"] > [data-testid="element-container"] {
+            animation: sectionFloatIn var(--anim-slow) var(--ease-fluid) both;
+        }
+
+        [data-testid="stVerticalBlock"] > [data-testid="element-container"]:nth-child(1) { animation-delay: 20ms; }
+        [data-testid="stVerticalBlock"] > [data-testid="element-container"]:nth-child(2) { animation-delay: 45ms; }
+        [data-testid="stVerticalBlock"] > [data-testid="element-container"]:nth-child(3) { animation-delay: 70ms; }
+        [data-testid="stVerticalBlock"] > [data-testid="element-container"]:nth-child(4) { animation-delay: 95ms; }
+        [data-testid="stVerticalBlock"] > [data-testid="element-container"]:nth-child(5) { animation-delay: 120ms; }
+        [data-testid="stVerticalBlock"] > [data-testid="element-container"]:nth-child(6) { animation-delay: 145ms; }
+
+        @keyframes sectionFloatIn {
+            from {
+                opacity: 0;
+                transform: translate3d(0, 12px, 0) scale(0.998);
+            }
+            to {
+                opacity: 1;
+                transform: translate3d(0, 0, 0) scale(1);
+            }
         }
 
         [role="tablist"] {
