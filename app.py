@@ -1925,6 +1925,17 @@ if st.session_state.df_full is not None:
             if daily_stats.empty:
                 st.info("Нет данных за выбранный период.")
             else:
+                daily_stats = daily_stats.copy()
+                if 'ИндексДня' not in daily_stats.columns:
+                    daily_stats = daily_stats.sort_values('Дата_Отчета').reset_index(drop=True)
+                    daily_stats['ИндексДня'] = np.arange(1, len(daily_stats) + 1)
+
+                if not daily_prev.empty:
+                    daily_prev = daily_prev.copy()
+                    if 'ИндексДня' not in daily_prev.columns:
+                        daily_prev = daily_prev.sort_values('Дата_Отчета').reset_index(drop=True)
+                        daily_prev['ИндексДня'] = np.arange(1, len(daily_prev) + 1)
+
                 col_d1, col_d2 = st.columns([1.8, 1])
                 with col_d1:
                     if not daily_prev.empty:
