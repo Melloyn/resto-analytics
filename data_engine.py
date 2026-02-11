@@ -240,7 +240,23 @@ def process_single_file(file_content, filename=""):
 
         col_name = df.columns[0] # Usually "Номенклатура" or "Блюдо"
         
-        # 6. CAPTURE DROPPED ROWS (DEBUG)
+        # 6. HANDLE MULTI-DAY FILES (Date markers inside first column)
+        # Example marker: "01.01.2025 17:00:00" followed by item rows.
+        first_col_raw = df[col_name].astype(str).str.strip()
+        date_tokens = first_col_raw.str.extract(r'(?P<d>\d{2}\.\d{2}\.\d{4})', expand=True)['d']
+        row_dates = pd.to_datetime(date_tokens, format='%d.%m.%Y', errors='coerce')
+        unique_row_dates = row_dates.dropna().dt.normalize().nunique()
+
+        if unique_row_dates > 1:
+            df['Дата_Отчета'] = row_dates.dt.normalize().ffill()
+            # Rows containing date markers are structural rows, exclude from item lines.
+            df = df[row_dates.isna()].copy()
+            # Keep only rows that have a resolved day after forward fill.
+            df = df[df['Дата_Отчета'].notna()].copy()
+        else:
+            df['Дата_Отчета'] = report_date
+
+        # 7. CAPTURE DROPPED ROWS (DEBUG)
         # Identify rows that would be dropped
         # A. Empty Identifiers
         # B. Ignore Names
@@ -272,10 +288,9 @@ def process_single_file(file_content, filename=""):
         # Apply Filter
         df = df[mask_keep].copy()
         
-        # 7. ENRICH DATA
+        # 8. ENRICH DATA
         df['Unit_Cost'] = np.where(df['Количество'] != 0, df['Себестоимость'] / df['Количество'], 0)
         df['Фудкост'] = np.where(df['Выручка с НДС'] > 0, (df['Себестоимость'] / df['Выручка с НДС'] * 100), 0)
-        df['Дата_Отчета'] = report_date
         df = df.rename(columns={col_name: 'Блюдо'})
         df['Категория'] = df['Блюдо'].apply(detect_category_granular)
         
