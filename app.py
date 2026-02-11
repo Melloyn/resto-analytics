@@ -544,6 +544,7 @@ MAPPING_YANDEX_PATH = "RestoAnalytic/category_mapping.json"
 def _get_mapping_remote_path():
     return get_secret("CATEGORY_MAPPING_PATH") or os.getenv("CATEGORY_MAPPING_PATH") or MAPPING_YANDEX_PATH
 
+@st.cache_data(ttl=600, show_spinner=False)
 def load_custom_categories():
     token = get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
     remote_path = _get_mapping_remote_path()
@@ -556,12 +557,12 @@ def load_custom_categories():
                 "https://cloud-api.yandex.net/v1/disk/resources/download",
                 headers=headers,
                 params={'path': remote_path},
-                timeout=15
+                timeout=6
             )
             if dl_meta.status_code == 200:
                 href = dl_meta.json().get("href")
                 if href:
-                    dl_resp = requests.get(href, timeout=15)
+                    dl_resp = requests.get(href, timeout=6)
                     if dl_resp.status_code == 200 and dl_resp.text.strip():
                         data = json.loads(dl_resp.text)
                         if isinstance(data, dict):
@@ -592,12 +593,12 @@ def save_custom_categories(new_map):
                 "https://cloud-api.yandex.net/v1/disk/resources/upload",
                 headers=headers,
                 params={'path': remote_path, 'overwrite': 'true'},
-                timeout=15
+                timeout=10
             )
             if up_meta.status_code == 200:
                 href = up_meta.json().get("href")
                 if href:
-                    up_resp = requests.put(href, data=payload.encode('utf-8'), timeout=20)
+                    up_resp = requests.put(href, data=payload.encode('utf-8'), timeout=12)
                     saved_remote = up_resp.status_code in (200, 201, 202)
         except Exception:
             saved_remote = False
@@ -612,9 +613,8 @@ def save_custom_categories(new_map):
 if st.session_state.df_full is not None:
     custom_cats = load_custom_categories()
     if custom_cats:
-        st.session_state.df_full['Категория'] = st.session_state.df_full.apply(
-            lambda x: custom_cats.get(x['Блюдо'], x['Категория']), axis=1
-        )
+        mapped = st.session_state.df_full['Блюдо'].map(custom_cats)
+        st.session_state.df_full['Категория'] = mapped.fillna(st.session_state.df_full['Категория'])
         
         # --- GLOBAL FILTER: DELETE IGNORED ITEMS ---
         # Remove rows where category is "⛔ Исключить из отчетов"
