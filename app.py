@@ -1940,17 +1940,23 @@ if st.session_state.df_full is not None:
                 with col_d1:
                     if not daily_prev.empty:
                         st.write("### Выручка по дням: текущий vs сравнение")
-                        cur_cmp = daily_stats[['ИндексДня', 'Выручка с НДС']].rename(columns={'Выручка с НДС': 'Текущий'})
-                        prev_cmp = daily_prev[['ИндексДня', 'Выручка с НДС']].rename(columns={'Выручка с НДС': 'Сравнение'})
-                        merged = pd.merge(cur_cmp, prev_cmp, on='ИндексДня', how='outer').fillna(0)
-                        long_cmp = merged.melt(id_vars='ИндексДня', value_vars=['Текущий', 'Сравнение'], var_name='Период', value_name='Выручка с НДС')
+                        cur_cmp = daily_stats[['ИндексДня', 'Выручка с НДС', 'ДеньРус', 'Дата_Подпись']].copy()
+                        cur_cmp['Период'] = 'Текущий'
+                        cur_cmp = cur_cmp.rename(columns={'ДеньРус': 'День недели', 'Дата_Подпись': 'Дата'})
+
+                        prev_cmp = daily_prev[['ИндексДня', 'Выручка с НДС', 'ДеньРус', 'Дата_Подпись']].copy()
+                        prev_cmp['Период'] = 'Сравнение'
+                        prev_cmp = prev_cmp.rename(columns={'ДеньРус': 'День недели', 'Дата_Подпись': 'Дата'})
+
+                        long_cmp = pd.concat([cur_cmp, prev_cmp], ignore_index=True)
                         fig_daily = px.bar(
                             long_cmp,
                             x='ИндексДня',
                             y='Выручка с НДС',
                             color='Период',
                             barmode='group',
-                            color_discrete_map={'Текущий': '#6ec8ff', 'Сравнение': '#ffb86b'}
+                            color_discrete_map={'Текущий': '#6ec8ff', 'Сравнение': '#ffb86b'},
+                            hover_data={'Дата': True, 'День недели': True, 'Выручка с НДС': ':.0f'}
                         )
                         fig_daily.update_layout(xaxis_title="День периода", yaxis_title="Выручка")
                     else:
