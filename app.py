@@ -642,26 +642,80 @@ if st.session_state.df_full is not None:
     st.sidebar.divider()
     st.sidebar.header("📥 Экспорт")
     
+    st.sidebar.divider()
+    st.sidebar.header("📥 Экспорт")
+    
     if not df_current.empty:
+        # --- EXPORT SETTINGS ---
+        sort_opt = st.sidebar.radio(
+            "Сортировка:",
+            ["💰 По Выручке", "📉 По Фуд-косту", "📦 По Количеству"],
+            index=0
+        )
+        
         # Function to convert DF to Excel with fallback
         @st.cache_data
-        def convert_df(df):
+        def convert_df(df, sort_mode):
             output = BytesIO()
             try:
-                # Try openpyxl first
+                # 1. Prepare Data
+                exp_df = df.copy()
+                
+                # Calculate Cost % if missing
+                if 'Кост %' not in exp_df.columns:
+                     exp_df['Кост %'] = (exp_df['Себестоимость'] / exp_df['Выручка с НДС'] * 100).fillna(0)
+                
+                # 2. Sort
+                if "Выручке" in sort_mode:
+                    exp_df = exp_df.sort_values(by='Выручка с НДС', ascending=False)
+                elif "Фуд-косту" in sort_mode:
+                    exp_df = exp_df.sort_values(by='Кост %', ascending=False)
+                elif "Количеству" in sort_mode:
+                    exp_df = exp_df.sort_values(by='Количество', ascending=False)
+                
+                # 3. Filter & Rename Columns
+                cols_map = {
+                    'Блюдо': 'Наименование', 
+                    'Количество': 'Кол-во', 
+                    'Себестоимость': 'Себест.', 
+                    'Выручка с НДС': 'Выручка', 
+                    'Кост %': 'Кост %', 
+                    'Категория': 'Категория'
+                }
+                
+                # Select only existing columns from the map
+                available_cols = [c for c in cols_map.keys() if c in exp_df.columns]
+                exp_df = exp_df[available_cols].rename(columns=cols_map)
+                
+                # 4. Write to Excel
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df.to_excel(writer, index=False, sheet_name='Report')
+                    exp_df.to_excel(writer, index=False, sheet_name='Report')
+                    
+                    # Optional: Auto-adjust column width (basic)
+                    ws = writer.sheets['Report']
+                    for column in ws.columns:
+                        max_length = 0
+                        column = [cell for cell in column]
+                        for cell in column:
+                            try:
+                                if len(str(cell.value)) > max_length:
+                                    max_length = len(str(cell.value))
+                            except:
+                                pass
+                        adjusted_width = (max_length + 2)
+                        ws.column_dimensions[column[0].column_letter].width = adjusted_width
+
             except Exception as e:
                 # Fallback or error
                 st.sidebar.error(f"Ошибка экспорта: {e}")
                 return None
             return output.getvalue()
 
-        excel_data = convert_df(df_current)
+        excel_data = convert_df(df_current, sort_opt)
         
         if excel_data:
             st.sidebar.download_button(
-                label="📊 Скачать Excel (Текущая выборка)",
+                label="📊 Скачать Excel",
                 data=excel_data,
                 file_name=f"report_{target_date.strftime('%Y-%m-%d')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
