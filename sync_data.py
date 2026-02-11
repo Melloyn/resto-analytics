@@ -4,6 +4,7 @@ import requests
 from io import BytesIO
 import toml
 import time
+import data_engine
 
 # Load secrets
 try:
@@ -14,24 +15,6 @@ except:
 
 CACHE_FILE = "data_cache.parquet"
 YANDEX_PATH = "Отчеты_Ресторан" # Make sure this matches your Yandex Disk folder
-
-def process_single_file(file_obj, filename):
-    # Reuse the logic from app.py or simplified version
-    # For now, simplistic read
-    try:
-        if filename.endswith('.csv'):
-            df = pd.read_csv(file_obj)
-        else:
-            df = pd.read_excel(file_obj)
-        
-        # Add basic preprocessing if needed to match app.py
-        # Ideally this code should be shared, but for now we duplicate small logic
-        if 'Дата Открытия' in df.columns and 'Дата_Отчета' not in df.columns:
-             df['Дата_Отчета'] = pd.to_datetime(df['Дата Открытия'], dayfirst=True)
-        return df
-    except Exception as e:
-        print(f"Error processing {filename}: {e}")
-        return None
 
 def sync_from_yandex():
     print(f"🔄 Starting Yandex Sync at {time.ctime()}")
@@ -52,29 +35,37 @@ def sync_from_yandex():
 
         # 2. Recursive Scan
         data_frames = []
+        dropped_summary = {'count': 0, 'cost': 0.0}
         
         # Check if root has subfolders
         items = response.json().get('_embedded', {}).get('items', [])
         
-        # We need to distinguish between files in root and folders (Venues)
-        # Strategy: 
-        # - Files in root -> Venue = 'General'
-        # - Files in subfolder -> Venue = Subfolder Name
-        
         folders = [i for i in items if i['type'] == 'dir']
         root_files = [i for i in items if i['type'] == 'file' and (i['name'].endswith('.xlsx') or i['name'].endswith('.csv'))]
         
+        # Helper to process file using data_engine
+        def process_and_collect(file_url, filename, venue):
+            try:
+                r = requests.get(file_url, headers=headers, timeout=20)
+                df, err, warns, dropped = data_engine.process_single_file(BytesIO(r.content), filename)
+                
+                if dropped:
+                    dropped_summary['count'] += dropped['count']
+                    dropped_summary['cost'] += dropped['cost']
+
+                if df is not None:
+                    df['Venue'] = venue
+                    data_frames.append(df)
+                    print(f"   ✅ {filename} processed.")
+                elif err:
+                    print(f"   ⚠️ {filename}: {err}")
+            except Exception as e:
+                print(f"   ❌ Error {filename}: {e}")
+
         # Process Root Files
         for item in root_files:
             print(f"⬇️ Downloading {item['name']} (Root)...")
-            try:
-                file_resp = requests.get(item['file'], headers=headers, timeout=20)
-                df = process_single_file(BytesIO(file_resp.content), item['name'])
-                if df is not None:
-                    df['Venue'] = 'General' # Default tag
-                    data_frames.append(df)
-            except Exception as e:
-                print(f"❌ Error downloading {item['name']}: {e}")
+            process_and_collect(item['file'], item['name'], 'Mesto')
 
         # Process Subfolders
         for folder in folders:
@@ -89,15 +80,7 @@ def sync_from_yandex():
                 sub_files = [i for i in sub_items if i['type'] == 'file' and (i['name'].endswith('.xlsx') or i['name'].endswith('.csv'))]
                 
                 for item in sub_files:
-                    print(f"   ⬇️ Downloading {item['name']}...")
-                    try:
-                        file_resp = requests.get(item['file'], headers=headers, timeout=20)
-                        df = process_single_file(BytesIO(file_resp.content), item['name'])
-                        if df is not None:
-                            df['Venue'] = venue_name
-                            data_frames.append(df)
-                    except Exception as e:
-                        print(f"   ❌ Error downloading {item['name']}: {e}")
+                     process_and_collect(item['file'], item['name'], venue_name)
         
         if data_frames:
             full_df = pd.concat(data_frames, ignore_index=True)
@@ -107,6 +90,7 @@ def sync_from_yandex():
             # 3. Save to Parquet Cache
             full_df.to_parquet(CACHE_FILE, index=False)
             print(f"✅ Success! Saved {len(full_df)} rows to {CACHE_FILE}")
+            print(f"ℹ️ Dropped {dropped_summary['count']} rows (Total Cost: {dropped_summary['cost']:.2f})")
         else:
             print("⚠️ No data frames to save.")
 

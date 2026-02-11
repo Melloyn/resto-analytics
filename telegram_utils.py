@@ -1,36 +1,54 @@
-import requests
+import data_engine
 import pandas as pd
+import requests
 
 def format_report(df_full, target_date):
     """
     Formates a text report for Telegram based on the latest data.
+    Includes insights and comparisons.
     """
     if df_full is None or df_full.empty:
         return "⚠️ Нет данных для отчета."
 
-    # Filter for the specific date (month) or take the latest
-    # For simplicity, let's take the summary of the filtered view if possible, 
-    # but since we don't have access to UI state here easily without passing it,
-    # let's generate a general summary for the LATEST available month.
-    
+    # Ensure date format
+    if not pd.api.types.is_datetime64_any_dtype(df_full['Дата_Отчета']):
+         df_full['Дата_Отчета'] = pd.to_datetime(df_full['Дата_Отчета'])
+
     latest_date = df_full['Дата_Отчета'].max()
     
     # --- 1. DAILY STATS ---
     df_day = df_full[df_full['Дата_Отчета'] == latest_date]
     day_rev = df_day['Выручка с НДС'].sum()
     day_cost = df_day['Себестоимость'].sum()
-    day_profit = day_rev - day_cost
     day_fc = (day_cost / day_rev * 100) if day_rev > 0 else 0
 
-    # --- 2. MONTHLY STATS (Cumulative) ---
-    # Filter from 1st day of the month of the latest_date
-    start_of_month = latest_date.replace(day=1)
-    df_month = df_full[(df_full['Дата_Отчета'] >= start_of_month) & (df_full['Дата_Отчета'] <= latest_date)]
+    # --- 2. MONTHLY STATS (Current vs Previous) ---
+    # Current Month
+    current_period = latest_date.to_period('M')
+    df_full['Month_Year'] = df_full['Дата_Отчета'].dt.to_period('M')
     
+    df_month = df_full[df_full['Month_Year'] == current_period]
     month_rev = df_month['Выручка с НДС'].sum()
     month_cost = df_month['Себестоимость'].sum()
     month_profit = month_rev - month_cost
     month_fc = (month_cost / month_rev * 100) if month_rev > 0 else 0
+    
+    # Previous Month (for insights)
+    prev_period = current_period - 1
+    df_prev = df_full[df_full['Month_Year'] == prev_period]
+    prev_month_rev = df_prev['Выручка с НДС'].sum()
+
+    # --- 3. INSIGHTS ---
+    insights = data_engine.calculate_insights(
+        df_month, df_prev, month_rev, prev_month_rev, month_fc
+    )
+    
+    insight_text = ""
+    for note in insights:
+        if note['level'] in ['error', 'warning', 'success', 'info']:
+            # Filter all_good if we have real items? No, show all_good if nothing else
+            if note['type'] == 'all_good' and len(insights) > 1: continue 
+            insight_text += f"\n{note['message']}"
 
     # Top Dish of the Day
     try:
@@ -38,12 +56,7 @@ def format_report(df_full, target_date):
     except:
         top_dish_day = "-"
 
-    # Russian Month Name
-    months = {
-        1: 'Январь', 2: 'Февраль', 3: 'Март', 4: 'Апрель', 5: 'Май', 6: 'Июнь',
-        7: 'Июль', 8: 'Август', 9: 'Сентябрь', 10: 'Октябрь', 11: 'Ноябрь', 12: 'Декабрь'
-    }
-    month_name = months.get(latest_date.month, str(latest_date.month))
+    month_name = data_engine.RUS_MONTH_NAMES.get(latest_date.month, str(latest_date.month))
     
     report = f"""
 📊 **Отчет: Бар МЕСТО**
@@ -59,6 +72,8 @@ def format_report(df_full, target_date):
 📉 Фуд-кост: {month_fc:.1f}%
 💸 Себестоимость: {int(month_cost):,} ₽
 💵 Маржа: {int(month_profit):,} ₽
+
+🔎 **Аналитика:**{insight_text}
     """
     return report.strip()
 

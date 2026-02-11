@@ -3,11 +3,11 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import requests
-import re
 import json
 import numpy as np
 import os
 import telegram_utils
+import data_engine
 from io import BytesIO
 from datetime import datetime, timedelta
 
@@ -126,323 +126,98 @@ setup_style()
 # --- ИНИЦИАЛИЗАЦИЯ ПАМЯТИ ---
 if 'df_full' not in st.session_state:
     st.session_state.df_full = None
-
-# --- СПИСОК ИСКЛЮЧЕНИЙ ---
-IGNORE_NAMES = [
-    "Бар Место", "Бар Место Бургерная", "Итого", "Номенклатура", "Склады", 
-    "Незавершённое производство", "Товары", "Услуги", "ЕГАИС", "Алкоголь",
-    "Пиво разливное Россия", "Пиво импортное", "Пиво бутылочное", "Сидр", 
-    "Водка", "Самогон", "Настойки", "Чача/Грапа", "Джин", "Виски/Бурбон", 
-    "Текила", "Ром", "Коньяк/Бренди", "Аперитивы", "Ликеры и настойки", 
-    "Вермуты", "Игристые вина", "Тихие белые вина", "Тихие розовые вина", 
-    "Тихие красные вина", "Крепленые вина", "Б/а напитки", "Коктейли по контракту"
-]
+if 'dropped_stats' not in st.session_state:
+    st.session_state.dropped_stats = {'count': 0, 'cost': 0.0, 'items': []}
 
 # --- 1. ГРУППИРОВКА ДЛЯ МАКРО-УРОВНЯ ---
-def get_macro_category(cat):
-    if cat in ['☕ Кофе', '🍵 Чай', '🍓 Милк/Фреш/Смузи', '🧉 Коктейль Б/А', '🚰 Розлив Б/А', '🥤 Стекло/Банка Б/А']: 
-        return '☕ Безалкогольное'
-    if cat in ['🍏 Сидр ШТ', '🍾 Пиво ШТ', '🍺 Пиво Розлив']: 
-        return '🍺 Пиво/Сидр'
-    if cat in ['🥃 Виски', '💧 Водка', '🏴‍☠️ Ром', '🌵 Текила', '🌲 Джин', '🍇 Коньяк/Бренди', '🍒 Ликер/Настойка']: 
-        return '🥃 Крепкое'
-    return cat
 
-# --- 2. ГРАНУЛЯРНЫЙ КАТЕГОРИЗАТОР ---
-def detect_category_granular(name_input):
-    name = str(name_input).strip().lower()
-    
-    # ЖЕСТКАЯ БАЗА
-    manual_dict = {
-        'banana tiki': '🍹 Коктейли', 'black hole': '🍹 Коктейли', 'clover club': '🍹 Коктейли', 
-        'drunk bee': '🍹 Коктейли', 'milk punch бурбон-черная смородина': '🍹 Коктейли', 
-        'milk punch виски-вишня': '🥃 Виски', 'milk punch ром-кокос': '🍹 Коктейли', 
-        'nevermind': '🍹 Коктейли', 'party-mix с виски': '🥃 Виски', 'passion star martini': '🍹 Коктейли', 
-        'pineapple spritz dmf pineapple': '🍹 Коктейли', 'rum bubble': '🍹 Коктейли', 'zombieville': '🍹 Коктейли', 
-        'авторское рислинг 125мл': '🍷 Вино', 'авторское совиньон блан 125мл': '🍷 Вино', 
-        'авторское совиньон блан 750мл': '🍷 Вино', 'айриш кофе': '🍹 Коктейли', 'антико итальяно 125мл': '🍷 Вино', 
-        'антико итальяно 700мл': '🍷 Вино', 'апельсин 20г': '🍬 Доп. ингредиенты', 'апероль шприц': '🍹 Коктейли', 
-        'асканели 40мл': '🍇 Коньяк/Бренди', 'балантайнс 40мл': '🥃 Виски', 'бандидо 40мл': '🌵 Текила', 
-        'белая березка 40мл': '💧 Водка', 'белуга нобл 40мл': '💧 Водка', 'белый русский': '🍹 Коктейли', 
-        'берн 0,33': '🥤 Стекло/Банка Б/А', 'биттербулл': '🍹 Коктейли', 'блэк рэм 40 мл': '🥃 Виски', 
-        'блэк шип 500мл': '🍺 Пиво Розлив', 'боржоми 0,5': '🥤 Стекло/Банка Б/А', 'брамбл': '🍹 Коктейли', 
-        'брум в асс. 40мл': '🌲 Джин', 'вино местное 125мл': '🍷 Вино', 'вино местное ежевичное 125мл': '🍺 Пиво Розлив', 
-        'виски кола': '🍹 Коктейли', 'вода с лимоном': '🚰 Розлив Б/А', 'гато негро 125мл': '🍷 Вино', 
-        'гленливет 12 лет 40мл': '🥃 Виски', 'глинтвей б/а': '🧉 Коктейль Б/А', 'глинтвейн': '🍹 Коктейли', 
-        'глинтвейн б/а бур': '🧉 Коктейль Б/А', 'глинтвейн белый': '🍹 Коктейли', 'глинтвейн белый б/а': '🧉 Коктейль Б/А', 
-        'глинтвейн бур': '🍹 Коктейли', 'голубые гаваи': '🍹 Коктейли', 'грейпфрутовый фреш 250 мл': '🍓 Милк/Фреш/Смузи', 
-        'дайкири в ассортименте': '🍹 Коктейли', 'джемесон 40мл': '🥃 Виски', 'джин-тоник': '🥤 Стекло/Банка Б/А', 
-        'джин-тропик': '🍹 Коктейли', 'егермейстер 40мл': '🍒 Ликер/Настойка', 'иван чай 400мл бур': '🍵 Чай', 
-        'капучино с кокосовым молоком': '☕ Кофе', 'капучино с миндальным молоком': '☕ Кофе', 'космополитен': '🍹 Коктейли', 
-        'кофе американо 150 мл': '☕ Кофе', 'кофе американо бур': '☕ Кофе', 'кофе американо для персонала': '☕ Кофе', 
-        'кофе двойной американо бур': '☕ Кофе', 'кофе двойной капучино бур': '☕ Кофе', 'кофе капучино': '☕ Кофе', 
-        'кофе капучино для персонала': '☕ Кофе', 'кофе латте': '☕ Кофе', 'кофе латте бур': '☕ Кофе', 
-        'кофе по восточном': '☕ Кофе', 'кофе со специями': '☕ Кофе', 'кофе эспрессо': '☕ Кофе', 
-        'кофе эспрессо двойной': '☕ Кофе', 'красностоп, корвина 125мл': '🍷 Вино', 'крушовице 0,33': '🍾 Пиво ШТ', 
-        'крушовице 0,33 б/а': '🥤 Стекло/Банка Б/А', 'крушовице темное 500мл': '🍺 Пиво Розлив', 'крушовице черне, 0,45': '🍾 Пиво ШТ', 
-        'куба либре': '🍹 Коктейли', 'лайм 20г': '🍬 Доп. ингредиенты', 'ламбруско\xa0 125мл': '🍷 Вино', 
-        'латте с кокосовым молоком': '☕ Кофе', 'латте с миндальным молоком': '☕ Кофе', 'ле гран 125мл': '🍷 Вино', 
-        'ле гран нуар 750мл': '🍷 Вино', 'лимон 20г': '🍬 Доп. ингредиенты', 'лонг айленд айс ти': '🍹 Коктейли', 
-        'май тай': '🍹 Коктейли', 'маракуйя гуава': '🍵 Чай', 'маргарита': '🍹 Коктейли', 'мейзон 500мл': '🍺 Пиво Розлив', 
-        'местное светлое 1000мл': '🍺 Пиво Розлив', 'местное светлое 500мл': '🍺 Пиво Розлив', 'милк шейк ванильный': '🍓 Милк/Фреш/Смузи', 
-        'милк шейк клубнично-банановый': '🍓 Милк/Фреш/Смузи', 'милк шейк лесные ягоды': '🍓 Милк/Фреш/Смузи', 
-        'милк шейк шоколадный': '🍓 Милк/Фреш/Смузи', 'минеральная вода 0,33': '🥤 Стекло/Банка Б/А', 'минеральная вода 0,5': '🥤 Стекло/Банка Б/А', 
-        'молоко 50мл': '🍬 Доп. ингредиенты', 'морс 250 мл': '🚰 Розлив Б/А', 'морской бриз малибу': '🍹 Коктейли', 
-        'мохито б/а': '🧉 Коктейль Б/А', 'мохито в асс.': '🍹 Коктейли', 'мята 20г': '🍬 Доп. ингредиенты', 
-        'мёд 50г': '🍬 Доп. ингредиенты', 'напиток газированный 0,33': '🥤 Стекло/Банка Б/А', 'напиток газированный 0,5': '🥤 Стекло/Банка Б/А', 
-        'напиток газированный розлив 250 мл': '🚰 Розлив Б/А', 'напиток из сиропа биб (кфс)': '🚰 Розлив Б/А', 'негрони': '🍹 Коктейли', 
-        'нк клубника базилик 40 мл': '🍒 Ликер/Настойка', 'нк кокос 40 мл': '🍒 Ликер/Настойка', 'нк сливочная лимончелло 40 мл': '🍒 Ликер/Настойка', 
-        'нк черешня 40 мл': '🍒 Ликер/Настойка', 'нк щавеливая 40 мл': '🍒 Ликер/Настойка', 'нк\xa0 фейхоа мята 40 мл': '🍒 Ликер/Настойка', 
-        'облепиховый чай с имбирём': '🍵 Чай', 'обнимашки': '🍹 Коктейли', 'окровавленная мерри': '🍹 Коктейли', 'онегин 40 мл': '💧 Водка', 
-        'пино колада б/а': '🧉 Коктейль Б/А', 'пинья колада': '🍹 Коктейли', 'пляж лонг айленда': '🍹 Коктейли', 
-        'просекко шардоне 125мл': '🍷 Вино', 'пфефферер 125мл': '🍷 Вино', 'рача': '🍹 Коктейли', 'ред бул - виски': '🍹 Коктейли', 
-        'ред булл - водка': '🥤 Стекло/Банка Б/А', 'ред булл 0,25': '🥤 Стекло/Банка Б/А', 'ром кола': '🍹 Коктейли', 
-        'светлое 500мл бур': '🍺 Пиво Розлив', 'сидр вп пуаре, 0,33л': '🍏 Сидр ШТ', 'сидр честерс вишня, 0,5': '🍏 Сидр ШТ', 
-        'сидр честерс лесн. ягоды, 0,5': '🍏 Сидр ШТ', 'сидр честерс персик-абрикос, 0,45': '🍏 Сидр ШТ', 'сидр честерс яблоко, 0,5': '🍏 Сидр ШТ', 
-        'сироп 50мл': '🍬 Доп. ингредиенты', 'сливки 50мл': '🍬 Доп. ингредиенты', 'смузи ежевичный': '🍓 Милк/Фреш/Смузи', 
-        'смузи клубнично-банановый': '🍓 Милк/Фреш/Смузи', 'сок rich стекло 0,2л, шт': '🥤 Стекло/Банка Б/А', 'сок в асс. 250мл': '🚰 Розлив Б/А', 
-        'сэт до еды': '🍹 Коктейли', 'сэт убийцы': '🍹 Коктейли', 'текила санрайз': '🌵 Текила', 'тини 750мл': '🍷 Вино', 
-        'том коллинз': '🍹 Коктейли', 'тоник 0,33': '🥤 Стекло/Банка Б/А', 'торрес 10 лет 40мл': '🍇 Коньяк/Бренди', 'флэт уайт': '☕ Кофе', 
-        'фрескеллов асс 125мл': '🍷 Вино', 'фреш апельсиновый 100 мл для комбо с яблочным': '🍓 Милк/Фреш/Смузи', 
-        'фреш апельсиновый 200 мл': '🍓 Милк/Фреш/Смузи', 'фруктовый физ': '🍹 Коктейли', 'ханс баер рислинг 125мл': '🍷 Вино', 
-        'ханс баер рислинг 750мл': '🍷 Вино', 'хаски 40мл': '💧 Водка', 'хаски берри микс 40мл': '💧 Водка', 'хххчай ежевика миндаль': '🍵 Чай', 
-        'чай 800 мл': '🍵 Чай', 'чай акция, порц': '🍵 Чай', 'чай бардак бергамота': '🍵 Чай', 'чай брусничный': '🍵 Чай', 
-        'чай да хун пао 400 мл': '🍵 Чай', 'чай ежевика миндаль_': '🍵 Чай', 'чай иван чай с малиной и травами': '🍵 Чай', 
-        'чай имбирный 200': '🍵 Чай', 'чай имбирный 400': '🍵 Чай', 'чай мандариновый 200': '🍵 Чай', 'чай мандариновый 400': '🍵 Чай', 
-        'чай медовое яблоко': '🍵 Чай', 'чай облепиховый 200': '🍵 Чай', 'чай облепиховый 400': '🍵 Чай', 'чай пакетированый бур, порция': '🍵 Чай', 
-        'чай розмарин 200': '🍵 Чай', 'чай розмарин 400': '🍵 Чай', 'чай тегуань инь 400 мл': '🍵 Чай', 'чивас ригал 12 лет 40мл': '🥃 Виски', 
-        'чистые росы 40 мл': '💧 Водка', 'шато тамань селект блан 125мл': '🍷 Вино', 'эсполон бланко 40мл': '🌵 Текила', 'ящерица лонг айленда': '🍹 Коктейли'
-    }
-    if name in manual_dict: return manual_dict[name]
 
-    # РЕЗЕРВНЫЙ ПОИСК
-    food_keywords = ['бургер', 'суп', 'салат', 'фри', 'сыр', 'мясо', 'стейк', 'хлеб', 'соус', 'картофель', 'гренки', 'крылья', 'креветки', 'паста', 'сухарики', 'сэндвич', 'добавка', 'десерт', 'мороженое', 'чизкейк', 'начос', 'кесадилья']
-    if any(w in name for w in food_keywords): return '🍔 Еда (Кухня)'
-
-    extra_keywords = ['сироп', 'доп.', 'сливки', 'молоко 50', 'лимон 20', 'лайм 20', 'мята 20', 'апельсин 20', 'мёд']
-    if any(w in name for w in extra_keywords): return '🍬 Доп. ингредиенты'
-
-    if any(w in name for w in ['кофе', 'капучино', 'латте', 'эспрессо', 'американо', 'раф', 'флэт уайт']): return '☕ Кофе'
-    if any(w in name for w in ['чай', 'сенча', 'пуэр', 'эрл грей']): return '🍵 Чай'
-    if any(w in name for w in ['смузи', 'милк', 'шейк', 'фреш']): return '🍓 Милк/Фреш/Смузи'
-    if 'б/а' in name and any(w in name for w in ['мохито', 'пина', 'глинтвейн', 'коктейль']): return '🧉 Коктейль Б/А'
-    if any(w in name for w in ['морс', 'лимонад', 'напиток']): 
-        if not any(b in name for b in ['черноголовка', 'натахтари']): return '🚰 Розлив Б/А'
-    if any(w in name for w in ['кола', 'cola', 'тоник', 'red bull', 'rich', 'вода', 'water']): return '🥤 Стекло/Банка Б/А'
-
-    if 'сидр' in name: return '🍏 Сидр ШТ'
-    if any(w in name for w in ['corona', 'clausthaler']) or ('пиво' in name and 'шт' in name): return '🍾 Пиво ШТ'
-    if any(w in name for w in ['пиво', 'beer', 'ale', 'lager', 'stout', 'светлое', 'темное']): return '🍺 Пиво Розлив'
-    if any(w in name for w in ['виски', 'jameson', 'jack', 'jim beam', 'macallan']): return '🥃 Виски'
-    if any(w in name for w in ['водка', 'белуга', 'хаски', 'онегин', 'finlandia']): return '💧 Водка'
-    if any(w in name for w in ['ром', 'bacardi', 'morgan', 'havana']): return '🏴‍☠️ Ром'
-    if any(w in name for w in ['текила', 'olmeca', 'espolon']): return '🌵 Текила'
-    if any(w in name for w in ['джин', 'beefeater', 'gordon', 'bombay']): return '🌲 Джин'
-    if any(w in name for w in ['коньяк', 'арарат', 'hennessy']): return '🍇 Коньяк/Бренди'
-    if any(w in name for w in ['ликер', 'настойка', 'егерь', 'baileys', 'апероль', 'самбука']): return '🍒 Ликер/Настойка'
-    if any(w in name for w in ['вино', 'wine', 'брют', 'просекко', 'шардоне']): return '🍷 Вино'
-    if any(w in name for w in ['коктейль', 'шот', 'лонг', 'дайкири', 'маргарита']): return '🍹 Коктейли'
-
-    return '📦 Прочее'
-
-# --- ПАРСИНГ ДАТЫ ---
-RUS_MONTHS = {
-    'января': 1, 'февраля': 2, 'марта': 3, 'апреля': 4, 'мая': 5, 'июня': 6,
-    'июля': 7, 'августа': 8, 'сентября': 9, 'октября': 10, 'ноября': 11, 'декабря': 12,
-    'янв': 1, 'фев': 2, 'мар': 3, 'апр': 4, 'май': 5, 'июн': 6,
-    'июл': 7, 'авг': 8, 'сен': 9, 'окт': 10, 'ноя': 11, 'дек': 12
-}
-
-def parse_russian_date(text):
-    text = text.lower()
-    match_text = re.search(r'(\d{1,2})\s+([а-я]+)\s+(\d{4})', text)
-    if match_text:
-        day, month_str, year = match_text.groups()
-        if month_str in RUS_MONTHS:
-            return datetime(int(year), RUS_MONTHS[month_str], int(day))
-    match_digit = re.search(r'(\d{2})\.(\d{2})\.(\d{4})', text)
-    if match_digit:
-        return datetime.strptime(match_digit.group(0), '%d.%m.%Y')
-    return None
-
-def detect_header_row(df_preview, required_column):
-    for idx in range(min(20, len(df_preview))):
-        row_values = df_preview.iloc[idx].astype(str).str.lower()
-        if row_values.str.contains(required_column.lower(), regex=False).any():
-            return idx
-    return None
-
-def process_single_file(file_content, filename=""):
-    warnings = []
-    try:
-        if isinstance(file_content, BytesIO):
-            file_content.seek(0)
-        try:
-            df_raw = pd.read_csv(file_content, header=None, nrows=20, sep=None, engine='python')
-        except (ValueError, pd.errors.ParserError):
-            if isinstance(file_content, BytesIO):
-                file_content.seek(0)
-            df_raw = pd.read_excel(file_content, header=None, nrows=20)
-
-        header_text = " ".join(df_raw.iloc[0:10, 0].astype(str).tolist())
-        report_date = parse_russian_date(header_text)
-
-        if not report_date:
-            month_map = {'jan': 'января', 'feb': 'февраля', 'mar': 'марта', 'apr': 'апреля', 'may': 'мая', 'jun': 'июня', 'jul': 'июля', 'aug': 'августа', 'sep': 'сентября', 'oct': 'октября', 'nov': 'ноября', 'dec': 'декабря'}
-            for eng, rus in month_map.items():
-                if eng in filename.lower():
-                    d_match = re.search(r'(\d{1,2})', filename)
-                    if d_match:
-                        current_year = datetime.now().year
-                        report_date = datetime(current_year, RUS_MONTHS[rus], int(d_match.group(1)))
-                        break
-        if not report_date:
-            warnings.append(f"Не удалось определить дату отчета, используется текущая дата: {filename}")
-            report_date = datetime.now()
-
-        header_row = detect_header_row(df_raw, "Выручка с НДС")
-        if header_row is None:
-            warnings.append(f"Заголовок не найден, используется строка 6: {filename}")
-            header_row = 5
-
-        if isinstance(file_content, BytesIO):
-            file_content.seek(0)
-        try:
-            df = pd.read_csv(file_content, header=header_row, sep=None, engine='python')
-        except (ValueError, pd.errors.ParserError):
-            if isinstance(file_content, BytesIO):
-                file_content.seek(0)
-            df = pd.read_excel(file_content, header=header_row)
-
-        df.columns = df.columns.astype(str).str.strip()
-        required_columns = {'Количество', 'Себестоимость', 'Выручка с НДС'}
-        missing_columns = required_columns.difference(df.columns)
-        if 'Выручка с НДС' not in df.columns:
-            return None, f"Не найдена колонка 'Выручка с НДС' в файле: {filename}", warnings
-        if missing_columns:
-            warnings.append(f"В файле отсутствуют колонки: {', '.join(sorted(missing_columns))}. {filename}")
-
-        col_name = df.columns[0]
-        df = df.dropna(subset=[col_name])
-        df = df[~df[col_name].astype(str).str.strip().isin(IGNORE_NAMES)]
-        df = df[~df[col_name].astype(str).str.contains("Итого", case=False)]
-        
-        cols_to_num = ['Количество', 'Себестоимость', 'Выручка с НДС']
-        for col in cols_to_num:
-            if col in df.columns:
-                df[col] = df[col].astype(str).str.replace(r'\s+', '', regex=True).str.replace(',', '.')
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-        
-        df['Unit_Cost'] = np.where(df['Количество'] != 0, df['Себестоимость'] / df['Количество'], 0)
-        df['Фудкост'] = np.where(df['Выручка с НДС'] > 0, (df['Себестоимость'] / df['Выручка с НДС'] * 100), 0)
-        df['Дата_Отчета'] = report_date
-        df = df.rename(columns={col_name: 'Блюдо'})
-        df['Категория'] = df['Блюдо'].apply(detect_category_granular)
-        
-        # --- БЕЗОПАСНОЕ ДОБАВЛЕНИЕ ПОСТАВЩИКА ---
-        if 'Поставщик' in df.columns:
-            df['Поставщик'] = df['Поставщик'].fillna('Не указан')
-        else:
-            df['Поставщик'] = 'Не указан'
-        # ----------------------------------------
-
-        return df, None, warnings
-    except (ValueError, KeyError, pd.errors.ParserError) as exc:
-        return None, f"Ошибка обработки файла {filename}: {exc}", warnings
-
-@st.cache_data(ttl=3600, show_spinner="Скачиваем данные с Яндекс.Диска...")
 
 # --- SMART INSIGHTS ENGINE ---
 def generate_insights(df_curr, df_prev, cur_rev, prev_rev, cur_fc):
     with st.expander("💡 Smart Insights (Анализ Аномалий)", expanded=True):
-        alerts = []
+        insights = data_engine.calculate_insights(df_curr, df_prev, cur_rev, prev_rev, cur_fc)
         
-        # 1. Revenue Check
-        if prev_rev > 0:
-            rev_diff_pct = (cur_rev - prev_rev) / prev_rev * 100
-            if rev_diff_pct < -10:
-                st.error(f"📉 **Тревога по Выручке**: Падение на {abs(rev_diff_pct):.1f}% по сравнению с прошлым периодом.")
-                alerts.append("rev_drop")
-            elif rev_diff_pct > 20:
-                st.success(f"🚀 **Отличный рост**: Выручка выросла на {rev_diff_pct:.1f}%!")
-                alerts.append("rev_growth")
-
-        # 2. Food Cost Check
-        TARGET_FC = 35.0
-        if cur_fc > TARGET_FC:
-            st.warning(f"⚠️ **Высокий Фуд-кост**: Текущий {cur_fc:.1f}% (Цель: {TARGET_FC}%).")
-            alerts.append("high_fc")
+        level_map = {
+            'error': st.error,
+            'warning': st.warning,
+            'info': st.info,
+            'success': st.success
+        }
         
-        # 3. Ingredient Inflation (Top Spike)
-        if not df_prev.empty and 'Unit_Cost' in df_curr.columns and 'Unit_Cost' in df_prev.columns:
-            # Сравниваем средние цены закупки
-            curr_prices = df_curr.groupby('Блюдо')['Unit_Cost'].mean()
-            prev_prices = df_prev.groupby('Блюдо')['Unit_Cost'].mean()
-            
-            price_changes = (curr_prices - prev_prices) / prev_prices * 100
-            price_changes = price_changes.dropna().sort_values(ascending=False)
-            
-            if not price_changes.empty:
-                top_inflator = price_changes.index[0]
-                top_val = price_changes.iloc[0]
-                if top_val > 15: # Если выросло более чем на 15%
-                    st.warning(f"💸 **Скачок цены**: {top_inflator} подорожал на {top_val:.0f}%.")
-                    alerts.append("inflation")
+        for note in insights:
+            # Render using the appropriate Streamlit function
+            # Some messages in data_engine have bold markdown, st handles that fine.
+            if note['level'] in level_map:
+                level_map[note['level']](note['message'])
 
-        # 4. Dead Items ("Dogs")
-        # Logic: Low Sales (< Avg) AND Low Margin (< Avg)
-        if not df_curr.empty:
-            item_stats = df_curr.groupby('Блюдо').agg({'Количество': 'sum', 'Выручка с НДС': 'sum', 'Себестоимость': 'sum'}).reset_index()
-            item_stats['Маржа'] = item_stats['Выручка с НДС'] - item_stats['Себестоимость']
-            item_stats = item_stats[item_stats['Количество'] > 0]
-            
-            avg_qty = item_stats['Количество'].mean()
-            avg_margin = item_stats['Маржа'].mean() # Total margin per item line
-            
-            dogs = item_stats[(item_stats['Количество'] < avg_qty * 0.5) & (item_stats['Маржа'] < avg_margin * 0.5)]
-            if len(dogs) > 5:
-                st.info(f"🐶 **Мертвый груз**: Найдено {len(dogs)} позиций 'Собак' (мало продаж, мало денег). Проверьте вкладку 'Матрица'.")
-                alerts.append("dogs")
-
-        if not alerts:
-            st.success("✅ **Всё спокойно**: Критических отклонений не найдено.")
-
+@st.cache_data(ttl=3600, show_spinner="Скачиваем данные с Яндекс.Диска...")
 def load_all_from_yandex(root_path):
     token = get_secret("YANDEX_TOKEN")
-    if not token: return None
+    if not token: return [], {'count': 0, 'cost': 0.0, 'items': []}
+    
     headers = {'Authorization': f'OAuth {token}'}
     api_url = 'https://cloud-api.yandex.net/v1/disk/resources'
     
-    # helper to process a list of files with a specific venue tag
+    all_dfs = []
+    # Master accumulator for dropped stats (pure, no session_state)
+    master_dropped = {'count': 0, 'cost': 0.0, 'items': []}
+    
+    # Helper: Pure function returning (processed_dfs, batch_dropped_stats)
     def process_items(files, venue_tag):
         processed = []
+        batch_dropped = {'count': 0, 'cost': 0.0, 'items': []}
+        
         for item in files:
             try:
                 file_resp = requests.get(item['file'], headers=headers, timeout=20)
-                df, error, warnings = process_single_file(BytesIO(file_resp.content), filename=item['name'])
+                if file_resp.status_code != 200:
+                    st.warning(f"⚠️ Не удалось скачать {item['name']} (Status {file_resp.status_code})")
+                    continue
+                    
+                df, error, warnings, dropped = data_engine.process_single_file(BytesIO(file_resp.content), filename=item['name'])
+                
+                # Accumulate dropped stats for this batch
+                if dropped:
+                    batch_dropped['count'] += dropped['count']
+                    batch_dropped['cost'] += dropped['cost']
+                    batch_dropped['items'].extend(dropped['items'])
+
                 if error:
                     st.warning(f"{item['name']}: {error}")
                 if df is not None:
                     df['Venue'] = venue_tag
                     processed.append(df)
-            except: continue
-        return processed
+            except Exception as e:
+                st.warning(f"⚠️ Ошибка обработки {item['name']}: {e}")
+                continue
+        
+        return processed, batch_dropped
+
+    # Helper to merge stats
+    def merge_stats(source):
+        master_dropped['count'] += source['count']
+        master_dropped['cost'] += source['cost']
+        master_dropped['items'].extend(source['items'])
 
     # 1. Get Root Items
     params = {'path': root_path, 'limit': 2000}
     try:
         response = requests.get(api_url, headers=headers, params=params, timeout=20)
-        if response.status_code != 200: return []
+        if response.status_code != 200: 
+            st.error(f"Yandex API Error: {response.status_code}")
+            return [], master_dropped
+            
         items = response.json().get('_embedded', {}).get('items', [])
         
         folders = [i for i in items if i['type'] == 'dir']
         root_files = [i for i in items if i['type'] == 'file' and (i['name'].endswith('.xlsx') or i['name'].endswith('.csv'))]
         
-        all_dfs = []
-        
         # 2. Process Root Files -> Venue = 'Mesto'
         if root_files:
-             all_dfs.extend(process_items(root_files, 'Mesto'))
+             dfs, d_stats = process_items(root_files, 'Mesto')
+             all_dfs.extend(dfs)
+             merge_stats(d_stats)
 
         # 3. Recursive Process Subfolders
         def get_files_recursive(path):
@@ -471,12 +246,14 @@ def load_all_from_yandex(root_path):
             venue_files = get_files_recursive(folder['path'])
             
             if venue_files:
-                all_dfs.extend(process_items(venue_files, venue_name))
+                dfs, d_stats = process_items(venue_files, venue_name)
+                all_dfs.extend(dfs)
+                merge_stats(d_stats)
         
-        return all_dfs
+        return all_dfs, master_dropped
     except Exception as e:
         st.error(f"Error loading from Yandex: {e}")
-        return []
+        return [], {'count': 0, 'cost': 0.0, 'items': []}
 
 def load_from_local_folder(root_path):
     all_dfs = []
@@ -484,6 +261,8 @@ def load_from_local_folder(root_path):
     # helper to process a list of files
     def process_local_files(files, venue_tag):
         processed = []
+        dropped_total = {'count': 0, 'cost': 0.0, 'items': []}
+        
         for file_path in files:
             try:
                 # Read file content
@@ -491,8 +270,14 @@ def load_from_local_folder(root_path):
                     content = BytesIO(f.read())
                 
                 filename = os.path.basename(file_path)
-                df, error, warnings = process_single_file(content, filename=filename)
+                df, error, warnings, dropped = data_engine.process_single_file(content, filename=filename)
                 
+                # Accumulate
+                if dropped:
+                    dropped_total['count'] += dropped['count']
+                    dropped_total['cost'] += dropped['cost']
+                    dropped_total['items'].extend(dropped['items'])
+
                 if error:
                     st.warning(f"{filename}: {error}")
                 if df is not None:
@@ -500,12 +285,15 @@ def load_from_local_folder(root_path):
                     processed.append(df)
             except Exception as e:
                 st.warning(f"Error reading {file_path}: {e}")
-        return processed
+        
+        return processed, dropped_total
 
     try:
         if not os.path.exists(root_path):
             st.error(f"Папка не найдена: {root_path}")
-            return []
+            return [], {'count': 0, 'cost': 0.0, 'items': []}
+
+        dropped_total = {'count': 0, 'cost': 0.0, 'items': []}
 
         # 1. Walk through directory
         for root, dirs, files in os.walk(root_path):
@@ -525,12 +313,17 @@ def load_from_local_folder(root_path):
             
             if target_files:
                 st.write(f"📂 Scanning {venue_name} ({len(target_files)} files)...")
-                all_dfs.extend(process_local_files(target_files, venue_name))
+                dfs, dropped_sub = process_local_files(target_files, venue_name)
+                all_dfs.extend(dfs)
+                # Accumulate
+                dropped_total['count'] += dropped_sub['count']
+                dropped_total['cost'] += dropped_sub['cost']
+                dropped_total['items'].extend(dropped_sub['items'])
 
-        return all_dfs
+        return all_dfs, dropped_total
     except Exception as e:
         st.error(f"Error loading local files: {e}")
-        return []
+        return [], {'count': 0, 'cost': 0.0, 'items': []}
 
 # --- AUTO-LOAD CACHE ON STARTUP ---
 CACHE_FILE = "data_cache.parquet"
@@ -556,9 +349,14 @@ with st.sidebar:
             if not get_secret("YANDEX_TOKEN"):
                  st.error("⚠️ Нет токена!")
             else:
-                temp_data = load_all_from_yandex(yandex_path)
+                temp_data, dropped_load = load_all_from_yandex(yandex_path)
                 if temp_data:
                     st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
+                    
+                    # Update Stats
+                    if dropped_load:
+                        st.session_state.dropped_stats = dropped_load
+                        
                     st.success(f"Загружено {len(temp_data)} отчетов!")
                     st.rerun()
                 else:
@@ -567,10 +365,15 @@ with st.sidebar:
     # --- LOCAL FOLDER ---
     elif source_mode == "Локальная папка":
         local_path = st.text_input("Путь к папке:", ".")
-        if st.button("� Сканировать папку", type="primary", use_container_width=True):
-            temp_data = load_from_local_folder(local_path)
+        if st.button(" Сканировать папку", type="primary", use_container_width=True):
+            temp_data, dropped_load = load_from_local_folder(local_path)
             if temp_data:
                 st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
+                
+                # Update Stats
+                if dropped_load:
+                    st.session_state.dropped_stats = dropped_load
+                    
                 st.success(f"Загружено {len(temp_data)} отчетов!")
                 st.rerun()
             else:
@@ -581,13 +384,21 @@ with st.sidebar:
         uploaded_files = st.file_uploader("Загрузить (CSV/Excel)", accept_multiple_files=True)
         if uploaded_files and st.button("📥 Обработать файлы", type="primary", use_container_width=True):
             temp_data = []
+            st.session_state.dropped_stats = {'count': 0, 'cost': 0.0, 'items': []}
+            
             for f in uploaded_files:
-                df_res = process_single_file(f, f.name)
-                if isinstance(df_res, tuple):
-                    df, error, warnings = df_res
+                df_res = data_engine.process_single_file(f, f.name)
+                # Unwrap 4 args
+                if isinstance(df_res, tuple) and len(df_res) == 4:
+                    df, error, warnings, dropped = df_res
                 else:
-                    df = df_res 
-                    error, warnings = None, []
+                    df, error, warnings, dropped = None, "Unknown error", [], None
+                
+                # Accumulate dropped
+                if dropped:
+                    st.session_state.dropped_stats['count'] += dropped['count']
+                    st.session_state.dropped_stats['cost'] += dropped['cost']
+                    st.session_state.dropped_stats['items'].extend(dropped['items'])
 
                 if error: st.warning(error)
                 for w in warnings: st.warning(w)
@@ -620,7 +431,21 @@ with st.sidebar:
         if st.button("🗑 Сбросить все данные"):
             st.cache_data.clear()
             st.session_state.df_full = None
+            st.session_state.dropped_stats = {'count': 0, 'cost': 0.0, 'items': []}
             st.rerun()
+            
+    # --- DEBUG INFO IN SIDEBAR ---
+    with st.expander("🐞 Debug: Отброшенные строки", expanded=False):
+        if st.session_state.dropped_stats and st.session_state.dropped_stats['count'] > 0:
+            st.write(f"**Количество:** {st.session_state.dropped_stats['count']}")
+            st.write(f"**Упущенная Себестоимость:** {st.session_state.dropped_stats['cost']:,.0f} ₽")
+            st.caption("Топ-20 отброшенных (по стоимости):")
+            
+            # Show top items
+            items_df = pd.DataFrame(st.session_state.dropped_stats['items'])
+            if not items_df.empty:
+                items_df = items_df.sort_values(by='Себестоимость', ascending=False).head(20)
+                st.dataframe(items_df, hide_index=True)
 
 
 # --- CUSTOM CATEGORY LOGIC (GLOBAL) ---
@@ -677,7 +502,7 @@ if st.session_state.df_full is not None:
         df_full = st.session_state.df_full.copy()
     
     # MACRO
-    df_full['Макро_Категория'] = df_full['Категория'].apply(get_macro_category)
+    df_full['Макро_Категория'] = df_full['Категория'].apply(data_engine.get_macro_category)
 
     dates_list = sorted(df_full['Дата_Отчета'].unique(), reverse=True)
 
