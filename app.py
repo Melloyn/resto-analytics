@@ -375,21 +375,39 @@ if st.session_state.df_full is None and os.path.exists(CACHE_FILE):
         pass # Fail silently, user can load manually
 
 # --- 1. SIDEBAR: DATA LOADING ---
+# --- 1. SIDEBAR: DATA LOADING ---
 with st.sidebar:
     st.title("🎛 Меню")
     
-    # Источник данных
-    st.header("📂 1. Источник данных")
-    source_mode = st.radio("Режим:", ["Яндекс.Диск", "Локальная папка", "Ручная загрузка"], label_visibility="collapsed")
+    # --- DATA SOURCE (EXPANDER) ---
+    with st.expander("📂 Источник данных", expanded=False):
+        source_mode = st.radio("Режим:", ["Яндекс.Диск", "Локальная папка", "Ручная загрузка"], label_visibility="collapsed")
 
-    # --- YANDEX DISK ---
-    if source_mode == "Яндекс.Диск":
-        yandex_path = st.text_input("Папка на Диске:", "RestoAnalytic")
-        if st.button("🚀 Скачать отчеты", type="primary", use_container_width=True):
-            if not get_secret("YANDEX_TOKEN"):
-                 st.error("⚠️ Нет токена!")
-            else:
-                temp_data, dropped_load = load_all_from_yandex(yandex_path)
+        # --- YANDEX DISK ---
+        if source_mode == "Яндекс.Диск":
+            yandex_path = st.text_input("Папка на Диске:", "RestoAnalytic")
+            if st.button("🚀 Скачать отчеты", type="primary", use_container_width=True):
+                if not get_secret("YANDEX_TOKEN"):
+                     st.error("⚠️ Нет токена!")
+                else:
+                    temp_data, dropped_load = load_all_from_yandex(yandex_path)
+                    if temp_data:
+                        st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
+                        
+                        # Update Stats
+                        if dropped_load:
+                            st.session_state.dropped_stats = dropped_load
+                            
+                        st.success(f"Загружено {len(temp_data)} отчетов!")
+                        st.rerun()
+                    else:
+                        st.warning("Файлов не найдено.")
+
+        # --- LOCAL FOLDER ---
+        elif source_mode == "Локальная папка":
+            local_path = st.text_input("Путь к папке:", ".")
+            if st.button(" Сканировать папку", type="primary", use_container_width=True):
+                temp_data, dropped_load = load_from_local_folder(local_path)
                 if temp_data:
                     st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
                     
@@ -402,84 +420,68 @@ with st.sidebar:
                 else:
                     st.warning("Файлов не найдено.")
 
-    # --- LOCAL FOLDER ---
-    elif source_mode == "Локальная папка":
-        local_path = st.text_input("Путь к папке:", ".")
-        if st.button(" Сканировать папку", type="primary", use_container_width=True):
-            temp_data, dropped_load = load_from_local_folder(local_path)
-            if temp_data:
-                st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
+        # --- MANUAL UPLOAD ---
+        elif source_mode == "Ручная загрузка":
+            uploaded_files = st.file_uploader("Загрузить (CSV/Excel)", accept_multiple_files=True)
+            if uploaded_files and st.button("📥 Обработать файлы", type="primary", use_container_width=True):
+                temp_data = []
+                st.session_state.dropped_stats = {'count': 0, 'cost': 0.0, 'items': []}
                 
-                # Update Stats
-                if dropped_load:
-                    st.session_state.dropped_stats = dropped_load
+                for f in uploaded_files:
+                    df_res = data_engine.process_single_file(f, f.name)
+                    # Unwrap 4 args
+                    if isinstance(df_res, tuple) and len(df_res) == 4:
+                        df, error, warnings, dropped = df_res
+                    else:
+                        df, error, warnings, dropped = None, "Unknown error", [], None
                     
-                st.success(f"Загружено {len(temp_data)} отчетов!")
-                st.rerun()
-            else:
-                st.warning("Файлов не найдено.")
+                    # Accumulate dropped
+                    if dropped:
+                        st.session_state.dropped_stats['count'] += dropped['count']
+                        st.session_state.dropped_stats['cost'] += dropped['cost']
+                        st.session_state.dropped_stats['items'].extend(dropped['items'])
 
-    # --- MANUAL UPLOAD ---
-    elif source_mode == "Ручная загрузка":
-        uploaded_files = st.file_uploader("Загрузить (CSV/Excel)", accept_multiple_files=True)
-        if uploaded_files and st.button("📥 Обработать файлы", type="primary", use_container_width=True):
-            temp_data = []
-            st.session_state.dropped_stats = {'count': 0, 'cost': 0.0, 'items': []}
-            
-            for f in uploaded_files:
-                df_res = data_engine.process_single_file(f, f.name)
-                # Unwrap 4 args
-                if isinstance(df_res, tuple) and len(df_res) == 4:
-                    df, error, warnings, dropped = df_res
-                else:
-                    df, error, warnings, dropped = None, "Unknown error", [], None
+                    if error: st.warning(error)
+                    for w in warnings: st.warning(w)
+                    if df is not None: temp_data.append(df)
                 
-                # Accumulate dropped
-                if dropped:
-                    st.session_state.dropped_stats['count'] += dropped['count']
-                    st.session_state.dropped_stats['cost'] += dropped['cost']
-                    st.session_state.dropped_stats['items'].extend(dropped['items'])
-
-                if error: st.warning(error)
-                for w in warnings: st.warning(w)
-                if df is not None: temp_data.append(df)
-            
-            if temp_data:
-                st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
-                st.success("Файлы обработаны!")
-                st.rerun()
+                if temp_data:
+                    st.session_state.df_full = pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета')
+                    st.success("Файлы обработаны!")
+                    st.rerun()
 
     # --- ADVANCED OPTIONS (Cache, Reset) ---
     with st.expander("⚙️ Технические опции"):
         CACHE_FILE = "data_cache.parquet"
         
-        if st.button("� Сохранить в Кеш"):
-            if st.session_state.df_full is not None:
-                st.session_state.df_full.to_parquet(CACHE_FILE, index=False)
-                st.success("Сохранено!")
-            else:
-                st.warning("Нет данных.")
-
-        if st.button("🚀 Загрузить из Кеша"):
-            if os.path.exists(CACHE_FILE):
-                 st.session_state.df_full = pd.read_parquet(CACHE_FILE)
-                 st.success("Загружено из кеша!")
-                 st.rerun()
-            else:
-                 st.warning("Кеш пуст.")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("💾 Кеш", use_container_width=True):
+                if st.session_state.df_full is not None:
+                    st.session_state.df_full.to_parquet(CACHE_FILE, index=False)
+                    st.success("ОК!")
+                else:
+                    st.warning("Пусто")
+        with col2:
+            if st.button("🚀 Load", use_container_width=True):
+                if os.path.exists(CACHE_FILE):
+                     st.session_state.df_full = pd.read_parquet(CACHE_FILE)
+                     st.success("ОК!")
+                     st.rerun()
+                else:
+                     st.warning("Нет")
         
-        if st.button("🗑 Сбросить все данные"):
+        if st.button("🗑 Сброс", use_container_width=True):
             st.cache_data.clear()
             st.session_state.df_full = None
             st.session_state.dropped_stats = {'count': 0, 'cost': 0.0, 'items': []}
             st.rerun()
             
     # --- DEBUG INFO IN SIDEBAR ---
-    with st.expander("🐞 Debug: Отброшенные строки", expanded=False):
+    with st.expander("🐞 Debug: Отброшенные", expanded=False):
         if st.session_state.dropped_stats and st.session_state.dropped_stats['count'] > 0:
-            st.write(f"**Количество:** {st.session_state.dropped_stats['count']}")
-            st.write(f"**Упущенная Себестоимость:** {st.session_state.dropped_stats['cost']:,.0f} ₽")
-            st.caption("Топ-20 отброшенных (по стоимости):")
+            st.write(f"**Кол-во:** {st.session_state.dropped_stats['count']}")
+            st.write(f"**Cумма:** {st.session_state.dropped_stats['cost']:,.0f} ₽")
             
             # Show top items
             items_df = pd.DataFrame(st.session_state.dropped_stats['items'])
@@ -518,211 +520,238 @@ if st.session_state.df_full is not None:
         st.session_state.df_full = st.session_state.df_full[st.session_state.df_full['Категория'] != "⛔ Исключить из отчетов"]
 
 # --- ОСНОВНАЯ ЛОГИКА ---
+tg_token = get_secret("TELEGRAM_TOKEN")
+tg_chat = get_secret("TELEGRAM_CHAT_ID")
+
 if st.session_state.df_full is not None:
 
-    # --- SIDEBAR: FILTERS ---
-    st.sidebar.divider()
-    st.sidebar.header("🔍 Фильтры")
+    # --- SIDEBAR: FILTERS (EXPANDER) ---
+    with st.sidebar.expander("� Фильтры периода", expanded=True):
 
-    # 1. VENUE SELECTOR
-    selected_venue = "Все заведения"
-    if 'Venue' in st.session_state.df_full.columns:
-        unique_venues = sorted(st.session_state.df_full['Venue'].astype(str).unique())
-        if len(unique_venues) > 1 or (len(unique_venues) == 1 and unique_venues[0] != 'nan'):
-             selected_venue = st.sidebar.selectbox("🏠 Заведение:", ["Все заведения"] + unique_venues)
+        # 1. VENUE SELECTOR
+        selected_venue = "Все заведения"
+        if 'Venue' in st.session_state.df_full.columns:
+            unique_venues = sorted(st.session_state.df_full['Venue'].astype(str).unique())
+            if len(unique_venues) > 1 or (len(unique_venues) == 1 and unique_venues[0] != 'nan'):
+                 selected_venue = st.selectbox("🏠 Заведение:", ["Все заведения"] + unique_venues)
 
-    # ЛЕЧЕНИЕ ДАННЫХ В ПАМЯТИ (Если вдруг нет колонки)
-    if 'Поставщик' not in st.session_state.df_full.columns:
-        st.session_state.df_full['Поставщик'] = 'Не указан'
+        # ЛЕЧЕНИЕ ДАННЫХ В ПАМЯТИ (Если вдруг нет колонки)
+        if 'Поставщик' not in st.session_state.df_full.columns:
+            st.session_state.df_full['Поставщик'] = 'Не указан'
 
-    # ФИЛЬТРАЦИЯ
-    if selected_venue != "Все заведения":
-        df_full = st.session_state.df_full[st.session_state.df_full['Venue'] == selected_venue].copy()
-    else:
-        df_full = st.session_state.df_full.copy()
-    
-    # MACRO
-    df_full['Макро_Категория'] = df_full['Категория'].apply(data_engine.get_macro_category)
-
-    dates_list = sorted(df_full['Дата_Отчета'].unique(), reverse=True)
-
-    # 2. PERIOD SELECTOR
-    st.sidebar.subheader("🗓 Период")
-    
-    # Выбор режима: Месяц (для KPI/MoM) или Произвольный (для детального анализа)
-    period_mode = st.sidebar.radio("Режим:", ["📅 Месяц (Сравнение)", "📆 Интервал дат"], label_visibility="collapsed", horizontal=True)
-    
-    df_current = pd.DataFrame()
-    df_prev = pd.DataFrame()
-    prev_label = ""
-    target_date = datetime.now()
-    
-    if period_mode == "📅 Месяц (Сравнение)":
-        df_full['Month_Year'] = df_full['Дата_Отчета'].dt.to_period('M')
-        available_months = sorted(df_full['Month_Year'].unique(), reverse=True)
-        
-        if available_months:
-            selected_month = st.sidebar.selectbox("Выбери месяц:", available_months, format_func=lambda x: x.strftime('%B %Y'))
-            compare_options = ["Предыдущий месяц", "Тот же месяц (год назад)", "Нет"]
-            compare_mode = st.sidebar.selectbox("Сравнить с:", compare_options)
-            
-            # Текущий
-            df_current = df_full[df_full['Month_Year'] == selected_month]
-            target_date = df_current['Дата_Отчета'].max()
-            
-            # Сравнение
-            if compare_mode == "Предыдущий месяц":
-                prev_month = selected_month - 1
-                df_prev = df_full[df_full['Month_Year'] == prev_month]
-                prev_label = prev_month.strftime('%B %Y')
-            elif compare_mode == "Тот же месяц (год назад)":
-                prev_month = selected_month - 12
-                df_prev = df_full[df_full['Month_Year'] == prev_month]
-                prev_label = prev_month.strftime('%B %Y')
-    else:
-        # Режим ИНТЕРВАЛ
-        min_date = df_full['Дата_Отчета'].min().date()
-        max_date = df_full['Дата_Отчета'].max().date()
-        date_range = st.sidebar.date_input("Выберите даты:", value=(min_date, max_date), min_value=min_date, max_value=max_date)
-        
-        if isinstance(date_range, tuple) and len(date_range) == 2:
-            start_d, end_d = date_range
-            df_current = df_full[(df_full['Дата_Отчета'].dt.date >= start_d) & (df_full['Дата_Отчета'].dt.date <= end_d)]
-            target_date = end_d
-            
-            # --- COMPARISON LOGIC ---
-            compare_options = ["Нет", "Предыдущий период", "Тот же период (год назад)"]
-            compare_mode = st.sidebar.selectbox("Сравнить с:", compare_options)
-            
-            if compare_mode == "Предыдущий период":
-                delta = end_d - start_d
-                prev_end = start_d - timedelta(days=1)
-                prev_start = prev_end - delta
-                prev_label = f"{prev_start.strftime('%d.%m')} - {prev_end.strftime('%d.%m')}"
-                
-                df_prev = df_full[(df_full['Дата_Отчета'].dt.date >= prev_start) & (df_full['Дата_Отчета'].dt.date <= prev_end)]
-                
-            elif compare_mode == "Тот же период (год назад)":
-                # Simple Shift - 1 Year
-                def safe_year_sub(d):
-                    try: return d.replace(year=d.year - 1)
-                    except ValueError: return d.replace(year=d.year - 1, day=28)
-                
-                prev_start = safe_year_sub(start_d)
-                prev_end = safe_year_sub(end_d)
-                prev_label = f"{prev_start.strftime('%d.%m.%y')} - {prev_end.strftime('%d.%m.%y')}"
-                
-                df_prev = df_full[(df_full['Дата_Отчета'].dt.date >= prev_start) & (df_full['Дата_Отчета'].dt.date <= prev_end)]
-            else:
-                prev_label = "Без сравнения"
-                df_prev = pd.DataFrame()
-
+        # ФИЛЬТРАЦИЯ
+        if selected_venue != "Все заведения":
+            df_full = st.session_state.df_full[st.session_state.df_full['Venue'] == selected_venue].copy()
         else:
-            st.warning("Выберите корректный интервал")
-
-    # --- SIDEBAR: ACTIONS (TELEGRAM) ---
-    st.sidebar.divider()
-    st.sidebar.header("⚡ Действия")
-    tg_token = get_secret("TELEGRAM_TOKEN")
-    tg_chat = get_secret("TELEGRAM_CHAT_ID")
-    
-    if st.sidebar.button("📤 Отправить отчет в Telegram", use_container_width=True):
-        if not tg_token or not tg_chat:
-            st.sidebar.error("❌ Нет токена/чата!")
-        elif st.session_state.df_full is None:
-            st.sidebar.warning("⚠️ Нет данных.")
-        else:
-            with st.spinner("Формирую отчет..."):
-                # Use target_date from filter logic
-                report_text = telegram_utils.format_report(st.session_state.df_full, target_date)
-                success, msg = telegram_utils.send_to_all(tg_token, tg_chat, report_text)
-                if success: st.sidebar.success("Отправлено!")
-                else: st.sidebar.error(msg)
-    
-    st.sidebar.divider()
-    st.sidebar.header("📥 Экспорт")
-    
-    st.sidebar.divider()
-    st.sidebar.header("📥 Экспорт")
-    
-    if not df_current.empty:
-        # --- EXPORT SETTINGS ---
-        sort_opt = st.sidebar.radio(
-            "Сортировка:",
-            ["💰 По Выручке", "📉 По Фуд-косту", "📦 По Количеству"],
-            index=0
-        )
+            df_full = st.session_state.df_full.copy()
         
-        # Function to convert DF to Excel with fallback
-        @st.cache_data
-        def convert_df(df, sort_mode):
-            output = BytesIO()
-            try:
-                # 1. Prepare Data
-                exp_df = df.copy()
+        # MACRO
+        df_full['Макро_Категория'] = df_full['Категория'].apply(data_engine.get_macro_category)
+
+        dates_list = sorted(df_full['Дата_Отчета'].unique(), reverse=True)
+
+        # 2. PERIOD SELECTOR
+        # Выбор режима: Месяц (для KPI/MoM) или Произвольный (для детального анализа)
+        period_mode = st.radio("Режим:", ["📅 Месяц (Сравнение)", "📆 Интервал дат"], label_visibility="collapsed", horizontal=True)
+        
+        df_current = pd.DataFrame()
+        df_prev = pd.DataFrame()
+        prev_label = ""
+        target_date = datetime.now()
+        
+        if period_mode == "📅 Месяц (Сравнение)":
+            df_full['Month_Year'] = df_full['Дата_Отчета'].dt.to_period('M')
+            available_months = sorted(df_full['Month_Year'].unique(), reverse=True)
+            
+            if available_months:
+                selected_month = st.selectbox("Выбери месяц:", available_months, format_func=lambda x: x.strftime('%B %Y'))
+                compare_options = ["Предыдущий месяц", "Тот же месяц (год назад)", "Нет"]
+                compare_mode = st.selectbox("Сравнить с:", compare_options)
                 
-                # Calculate Cost % if missing
-                if 'Кост %' not in exp_df.columns:
-                     exp_df['Кост %'] = (exp_df['Себестоимость'] / exp_df['Выручка с НДС'] * 100).fillna(0)
+                # Текущий
+                df_current = df_full[df_full['Month_Year'] == selected_month]
+                target_date = df_current['Дата_Отчета'].max()
                 
-                # 2. Sort
-                if "Выручке" in sort_mode:
-                    exp_df = exp_df.sort_values(by='Выручка с НДС', ascending=False)
-                elif "Фуд-косту" in sort_mode:
-                    exp_df = exp_df.sort_values(by='Кост %', ascending=False)
-                elif "Количеству" in sort_mode:
-                    exp_df = exp_df.sort_values(by='Количество', ascending=False)
+                # Сравнение
+                if compare_mode == "Предыдущий месяц":
+                    prev_month = selected_month - 1
+                    df_prev = df_full[df_full['Month_Year'] == prev_month]
+                    prev_label = prev_month.strftime('%B %Y')
+                elif compare_mode == "Тот же месяц (год назад)":
+                    prev_month = selected_month - 12
+                    df_prev = df_full[df_full['Month_Year'] == prev_month]
+                    prev_label = prev_month.strftime('%B %Y')
+        else:
+            # Режим ИНТЕРВАЛ
+            min_date = df_full['Дата_Отчета'].min().date()
+            max_date = df_full['Дата_Отчета'].max().date()
+            date_range = st.date_input("Выберите даты:", value=(min_date, max_date), min_value=min_date, max_value=max_date)
+            
+            if isinstance(date_range, tuple) and len(date_range) == 2:
+                start_d, end_d = date_range
+                df_current = df_full[(df_full['Дата_Отчета'].dt.date >= start_d) & (df_full['Дата_Отчета'].dt.date <= end_d)]
+                target_date = end_d
                 
-                # 3. Filter & Rename Columns
-                cols_map = {
-                    'Блюдо': 'Наименование', 
-                    'Количество': 'Кол-во', 
-                    'Себестоимость': 'Себест.', 
-                    'Выручка с НДС': 'Выручка', 
-                    'Кост %': 'Кост %', 
-                    'Категория': 'Категория'
-                }
+                # --- COMPARISON LOGIC ---
+                compare_options = ["Нет", "Предыдущий период", "Тот же период (год назад)"]
+                compare_mode = st.selectbox("Сравнить с:", compare_options)
                 
-                # Select only existing columns from the map
-                available_cols = [c for c in cols_map.keys() if c in exp_df.columns]
-                exp_df = exp_df[available_cols].rename(columns=cols_map)
-                
-                # 4. Write to Excel
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    exp_df.to_excel(writer, index=False, sheet_name='Report')
+                if compare_mode == "Предыдущий период":
+                    delta = end_d - start_d
+                    prev_end = start_d - timedelta(days=1)
+                    prev_start = prev_end - delta
+                    prev_label = f"{prev_start.strftime('%d.%m')} - {prev_end.strftime('%d.%m')}"
                     
-                    # Optional: Auto-adjust column width (basic)
-                    ws = writer.sheets['Report']
-                    for column in ws.columns:
-                        max_length = 0
-                        column = [cell for cell in column]
-                        for cell in column:
-                            try:
-                                if len(str(cell.value)) > max_length:
-                                    max_length = len(str(cell.value))
-                            except:
-                                pass
-                        adjusted_width = (max_length + 2)
-                        ws.column_dimensions[column[0].column_letter].width = adjusted_width
+                    df_prev = df_full[(df_full['Дата_Отчета'].dt.date >= prev_start) & (df_full['Дата_Отчета'].dt.date <= prev_end)]
+                    
+                elif compare_mode == "Тот же период (год назад)":
+                    # Simple Shift - 1 Year
+                    def safe_year_sub(d):
+                        try: return d.replace(year=d.year - 1)
+                        except ValueError: return d.replace(year=d.year - 1, day=28)
+                    
+                    prev_start = safe_year_sub(start_d)
+                    prev_end = safe_year_sub(end_d)
+                    prev_label = f"{prev_start.strftime('%d.%m.%y')} - {prev_end.strftime('%d.%m.%y')}"
+                    
+                    df_prev = df_full[(df_full['Дата_Отчета'].dt.date >= prev_start) & (df_full['Дата_Отчета'].dt.date <= prev_end)]
+                else:
+                    prev_label = "Без сравнения"
+                    df_prev = pd.DataFrame()
+    
+            else:
+                st.warning("Выберите корректный интервал")
 
-            except Exception as e:
-                # Fallback or error
-                st.sidebar.error(f"Ошибка экспорта: {e}")
-                return None
-            return output.getvalue()
-
-        excel_data = convert_df(df_current, sort_opt)
+    # --- SIDEBAR: ACTIONS & EXPORT (EXPANDER) ---
+    with st.sidebar.expander("⚡ Действия и Экспорт", expanded=True):
         
-        if excel_data:
-            st.sidebar.download_button(
-                label="📊 Скачать Excel",
-                data=excel_data,
-                file_name=f"report_{target_date.strftime('%Y-%m-%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
+        if st.button("📤 Отчет в Telegram", use_container_width=True):
+            if not tg_token or not tg_chat:
+                st.error("❌ Нет токена/чата!")
+            elif st.session_state.df_full is None:
+                st.warning("⚠️ Нет данных.")
+            else:
+                with st.spinner("Формирую отчет..."):
+                    report_text = telegram_utils.format_report(st.session_state.df_full, target_date)
+                    success, msg = telegram_utils.send_to_all(tg_token, tg_chat, report_text)
+                    if success: st.success("Отправлено!")
+                    else: st.error(msg)
+        
+        st.divider()
+        
+        if not df_current.empty:
+            # --- EXPORT SETTINGS ---
+            sort_opt = st.radio(
+                "Сортировка:",
+                ["💰 По Выручке", "📉 По Фуд-косту", "📦 По Количеству"],
+                index=0
             )
-    else:
-        st.sidebar.info("Нет данных для экспорта.")
+            
+            # Function to convert DF to Excel with fallback AND CHARTS
+            @st.cache_data
+            def convert_df(df, sort_mode):
+                output = BytesIO()
+                try:
+                    # 1. Prepare Data
+                    exp_df = df.copy()
+                    
+                    # Calculate Cost % if missing
+                    if 'Кост %' not in exp_df.columns:
+                         exp_df['Кост %'] = (exp_df['Себестоимость'] / exp_df['Выручка с НДС'] * 100).fillna(0)
+                    
+                    # 2. Sort
+                    if "Выручке" in sort_mode:
+                        exp_df = exp_df.sort_values(by='Выручка с НДС', ascending=False)
+                        sort_col = 'Выручка'
+                    elif "Фуд-косту" in sort_mode:
+                        exp_df = exp_df.sort_values(by='Кост %', ascending=False)
+                        sort_col = 'Кост %'
+                    elif "Количеству" in sort_mode:
+                        exp_df = exp_df.sort_values(by='Количество', ascending=False)
+                        sort_col = 'Кол-во'
+                    
+                    # 3. Filter & Rename Columns
+                    cols_map = {
+                        'Блюдо': 'Наименование', 
+                        'Количество': 'Кол-во', 
+                        'Себестоимость': 'Себест.', 
+                        'Выручка с НДС': 'Выручка', 
+                        'Кост %': 'Кост %', 
+                        'Категория': 'Категория'
+                    }
+                    
+                    available_cols = [c for c in cols_map.keys() if c in exp_df.columns]
+                    final_df = exp_df[available_cols].rename(columns=cols_map)
+                    
+                    # 4. Write to Excel using XlsxWriter
+                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                        final_df.to_excel(writer, index=False, sheet_name='Report')
+                        workbook  = writer.book
+                        worksheet = writer.sheets['Report']
+
+                        # --- FORMATTING ---
+                        money_fmt = workbook.add_format({'num_format': '#,##0', 'bold': False})
+                        header_fmt = workbook.add_format({'bold': True, 'bg_color': '#D3D3D3', 'border': 1})
+                        
+                        # Apply width and header format
+                        for col_num, value in enumerate(final_df.columns.values):
+                            worksheet.write(0, col_num, value, header_fmt)
+                            worksheet.set_column(col_num, col_num, 20) # Default width
+
+                        # --- CHARTS ---
+                        # Create a chart object.
+                        chart = workbook.add_chart({'type': 'column'})
+
+                        # Data range for top 10
+                        max_row = min(10, len(final_df))
+                        
+                        # Configure series
+                        # Values: Column based on sort_col. 
+                        # We need index of sort_col.
+                        try:
+                            val_idx = final_df.columns.get_loc(sort_col)
+                            cat_idx = final_df.columns.get_loc('Наименование')
+                            
+                            chart.add_series({
+                                'name':       [ 'Report', 0, val_idx],
+                                'categories': [ 'Report', 1, 0, max_row, 0], # Top 10 names
+                                'values':     [ 'Report', 1, val_idx, max_row, val_idx], # Top 10 values
+                                'data_labels': {'value': True},
+                            })
+
+                            chart.set_title ({'name': f'Топ-10: {sort_col}'})
+                            chart.set_x_axis({'name': 'Позиция'})
+                            chart.set_y_axis({'name': sort_col})
+                            chart.set_style(10) # Stylish look
+
+                            # Insert chart on a new sheet or same
+                            charts_sheet = workbook.add_worksheet('Charts')
+                            charts_sheet.insert_chart('B2', chart, {'x_scale': 2, 'y_scale': 2})
+                        except:
+                            pass # Fail silently if chart logic breaks
+
+                except Exception as e:
+                    # Fallback to openpyxl if xlsxwriter fails (though it's standard)
+                    try:
+                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                            df.to_excel(writer, index=False, sheet_name='Report')
+                    except:
+                        st.sidebar.error(f"Err: {e}")
+                        return None
+                return output.getvalue()
+
+            excel_data = convert_df(df_current, sort_opt)
+            
+            if excel_data:
+                st.sidebar.download_button(
+                    label="📊 Скачать Excel (+Графики)",
+                    data=excel_data,
+                    file_name=f"report_{target_date.strftime('%Y-%m-%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+        else:
+            st.info("Нет данных для экспорта.")
 
     # --- KPI DISPLAY ---
     if not df_current.empty:
