@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -78,6 +79,7 @@ def setup_style():
                 radial-gradient(38rem 20rem at 50% 110%, rgba(70, 180, 255, 0.18), transparent 60%),
                 linear-gradient(180deg, #08101d 0%, #0a1422 48%, #0b1420 100%);
             background-attachment: fixed;
+            --scroll-y: 0px;
         }
 
         .stApp::before {
@@ -89,6 +91,21 @@ def setup_style():
                 radial-gradient(18rem 18rem at 14% 24%, rgba(255, 255, 255, 0.07), transparent 70%),
                 radial-gradient(22rem 22rem at 84% 68%, rgba(155, 220, 255, 0.07), transparent 74%);
             filter: blur(1px);
+            transform: translate3d(0, calc(var(--scroll-y) * 0.06), 0);
+            will-change: transform;
+            z-index: 0;
+        }
+
+        .stApp::after {
+            content: "";
+            position: fixed;
+            inset: -10% -5% 0 -5%;
+            pointer-events: none;
+            background:
+                radial-gradient(26rem 16rem at 22% 78%, rgba(120, 196, 255, 0.12), transparent 68%),
+                radial-gradient(30rem 16rem at 82% 16%, rgba(196, 179, 255, 0.10), transparent 70%);
+            transform: translate3d(0, calc(var(--scroll-y) * -0.035), 0);
+            will-change: transform;
             z-index: 0;
         }
 
@@ -313,6 +330,40 @@ def setup_style():
 
 setup_style()
 
+def setup_parallax():
+    components.html("""
+    <script>
+    (function () {
+      try {
+        const p = window.parent;
+        if (!p || p.__restoParallaxBound) return;
+        p.__restoParallaxBound = true;
+
+        const root = p.document.documentElement;
+        let ticking = false;
+
+        function applyScrollVar() {
+          ticking = false;
+          const y = p.scrollY || p.document.documentElement.scrollTop || 0;
+          root.style.setProperty('--scroll-y', y + 'px');
+        }
+
+        function onScroll() {
+          if (!ticking) {
+            ticking = true;
+            p.requestAnimationFrame(applyScrollVar);
+          }
+        }
+
+        p.addEventListener('scroll', onScroll, { passive: true });
+        applyScrollVar();
+      } catch (e) {}
+    })();
+    </script>
+    """, height=0)
+
+setup_parallax()
+
 # --- ИНИЦИАЛИЗАЦИЯ ПАМЯТИ ---
 if 'df_full' not in st.session_state:
     st.session_state.df_full = None
@@ -324,6 +375,8 @@ if 'df_version' not in st.session_state:
     st.session_state.df_version = 0
 if 'categories_applied_sig' not in st.session_state:
     st.session_state.categories_applied_sig = None
+if 'view_cache' not in st.session_state:
+    st.session_state.view_cache = {}
 
 # --- 1. ГРУППИРОВКА ДЛЯ МАКРО-УРОВНЯ ---
 
@@ -382,6 +435,105 @@ def compute_inflation_metrics(df_full_scope, df_view_scope):
 
     df_inf = merged.rename(columns={'Блюдо': 'Товар', 'first_price': 'Старая цена', 'last_price': 'Новая цена'})
     return total_gross_loss, total_gross_save, df_inf[['Товар', 'Старая цена', 'Новая цена', 'Рост %', 'Эффект (₽)']]
+
+def compute_supplier_stats(df_view_scope):
+    if 'Поставщик' not in df_view_scope.columns or df_view_scope.empty:
+        return pd.DataFrame()
+    supplier_stats = df_view_scope.groupby('Поставщик', observed=True)['Себестоимость'].sum().reset_index()
+    supplier_stats = supplier_stats[supplier_stats['Поставщик'] != 'Не указан']
+    return supplier_stats.sort_values('Себестоимость', ascending=False).head(10)
+
+def compute_menu_tab_data(df_view_scope, target_cat):
+    if df_view_scope.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    df_cat = df_view_scope.groupby(target_cat, observed=True)['Выручка с НДС'].sum().reset_index()
+    df_menu = (
+        df_view_scope
+        .groupby(['Блюдо', target_cat], observed=True)
+        .agg({'Выручка с НДС': 'sum', 'Себестоимость': 'sum', 'Количество': 'sum'})
+        .reset_index()
+    )
+    df_menu['Фудкост %'] = np.where(df_menu['Выручка с НДС'] > 0, df_menu['Себестоимость'] / df_menu['Выручка с НДС'] * 100, 0)
+    df_menu = df_menu.sort_values('Выручка с НДС', ascending=False).head(50)
+    df_menu = df_menu.rename(columns={target_cat: 'Категория'})
+    return df_cat, df_menu
+
+def compute_abc_data(df_view_scope):
+    if df_view_scope.empty:
+        return pd.DataFrame(), 0.0, 0.0
+    abc_df = df_view_scope.groupby('Блюдо', observed=True).agg({'Количество': 'sum', 'Выручка с НДС': 'sum', 'Себестоимость': 'sum'}).reset_index()
+    abc_df = abc_df[abc_df['Количество'] > 0]
+    if abc_df.empty:
+        return abc_df, 0.0, 0.0
+    abc_df['Маржа'] = abc_df['Выручка с НДС'] - abc_df['Себестоимость']
+    abc_df['Unit_Margin'] = abc_df['Маржа'] / abc_df['Количество']
+    avg_qty = float(abc_df['Количество'].mean())
+    avg_margin = float(abc_df['Unit_Margin'].mean())
+    conditions = [
+        (abc_df['Unit_Margin'] >= avg_margin) & (abc_df['Количество'] >= avg_qty),
+        (abc_df['Unit_Margin'] < avg_margin) & (abc_df['Количество'] >= avg_qty),
+        (abc_df['Unit_Margin'] >= avg_margin) & (abc_df['Количество'] < avg_qty),
+    ]
+    classes = ["⭐ Звезда", "🐎 Лошадка", "❓ Загадка"]
+    abc_df['Класс'] = np.select(conditions, classes, default="🐶 Собака")
+    return abc_df, avg_qty, avg_margin
+
+def compute_weekday_stats(df_full_scope):
+    if df_full_scope.empty:
+        return pd.DataFrame()
+    work = df_full_scope[['Дата_Отчета', 'Выручка с НДС']].copy()
+    work['ДеньНедели'] = work['Дата_Отчета'].dt.day_name()
+    days_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    days_rus_map = {"Monday": "ПН", "Tuesday": "ВТ", "Wednesday": "СР", "Thursday": "ЧТ", "Friday": "ПТ", "Saturday": "СБ", "Sunday": "ВС"}
+    dow_stats = (
+        work.groupby(['Дата_Отчета', 'ДеньНедели'], observed=True)['Выручка с НДС']
+        .sum()
+        .reset_index()
+        .groupby('ДеньНедели', observed=True)['Выручка с НДС']
+        .mean()
+        .reindex(days_order)
+        .reset_index()
+    )
+    dow_stats['ДеньРус'] = dow_stats['ДеньНедели'].map(days_rus_map)
+    return dow_stats
+
+def compute_purchase_plan(df_full_scope, days_to_buy, safety_stock):
+    if df_full_scope.empty:
+        return pd.DataFrame()
+    last_30_days = df_full_scope['Дата_Отчета'].max() - timedelta(days=30)
+    df_recent = df_full_scope[df_full_scope['Дата_Отчета'] >= last_30_days]
+    daily_sales = df_recent.groupby('Блюдо', observed=True)['Количество'].sum().reset_index()
+    daily_sales['Avg_Daily_Qty'] = daily_sales['Количество'] / 30
+    last_prices = df_full_scope.sort_values('Дата_Отчета').groupby('Блюдо', observed=True)['Unit_Cost'].last().reset_index()
+    plan_df = pd.merge(daily_sales[['Блюдо', 'Avg_Daily_Qty']], last_prices, on='Блюдо', how='inner')
+    plan_df['Need_Qty'] = plan_df['Avg_Daily_Qty'] * days_to_buy * (1 + safety_stock / 100)
+    plan_df['Budget'] = plan_df['Need_Qty'] * plan_df['Unit_Cost']
+    return plan_df[plan_df['Need_Qty'] > 0.5].sort_values('Budget', ascending=False)
+
+def compute_simulation(df_view_scope, selected_cats, delta_price, delta_cost, delta_vol):
+    if not selected_cats:
+        return None
+    df_sim = df_view_scope[df_view_scope['Категория'].isin(selected_cats)].copy()
+    if df_sim.empty:
+        return None
+    base_revenue = float(df_sim['Выручка с НДС'].sum())
+    base_cost_total = float(df_sim['Себестоимость'].sum())
+    base_margin = base_revenue - base_cost_total
+    sim_revenue = base_revenue * (1 + delta_price / 100) * (1 + delta_vol / 100)
+    sim_cost_total = base_cost_total * (1 + delta_cost / 100) * (1 + delta_vol / 100)
+    sim_margin = sim_revenue - sim_cost_total
+    new_profitability = (sim_margin / sim_revenue * 100) if sim_revenue > 0 else 0
+    old_profitability = (base_margin / base_revenue * 100) if base_revenue > 0 else 0
+    return {
+        'base_revenue': base_revenue,
+        'base_margin': base_margin,
+        'sim_revenue': sim_revenue,
+        'sim_margin': sim_margin,
+        'diff_rev': sim_revenue - base_revenue,
+        'diff_margin': sim_margin - base_margin,
+        'new_profitability': new_profitability,
+        'old_profitability': old_profitability,
+    }
 
 @st.cache_data(ttl=3600, show_spinner="Скачиваем данные с Яндекс.Диска...")
 def load_all_from_yandex(root_path):
@@ -606,6 +758,12 @@ def set_df_full(df):
     st.session_state.df_full = optimize_dataframe(df)
     st.session_state.df_version += 1
     st.session_state.categories_applied_sig = None
+    st.session_state.view_cache = {}
+
+def get_view_cached(cache_key, factory):
+    if cache_key not in st.session_state.view_cache:
+        st.session_state.view_cache[cache_key] = factory()
+    return st.session_state.view_cache[cache_key]
 
 # --- AUTO-LOAD CACHE ON STARTUP ---
 CACHE_FILE = "data_cache.parquet"
@@ -744,6 +902,7 @@ with st.sidebar:
             st.session_state.dropped_stats = {'count': 0, 'cost': 0.0, 'items': []}
             st.session_state.df_version = 0
             st.session_state.categories_applied_sig = None
+            st.session_state.view_cache = {}
             st.rerun()
             
     # --- DEBUG INFO IN SIDEBAR ---
@@ -832,6 +991,7 @@ def save_custom_categories(new_map):
 
     load_custom_categories.clear()
     st.session_state.categories_applied_sig = None
+    st.session_state.view_cache = {}
 
     return saved_remote
 
@@ -1230,6 +1390,26 @@ if st.session_state.df_full is not None:
         df_view = df_full
         target_date = datetime.now()
 
+    if period_mode == "📅 Месяц (Сравнение)":
+        period_key = ("month", str(selected_month) if 'selected_month' in locals() else "none", compare_mode if 'compare_mode' in locals() else "none")
+    else:
+        if isinstance(date_range, tuple) and len(date_range) == 2:
+            period_key = ("range", str(date_range[0]), str(date_range[1]), compare_mode if 'compare_mode' in locals() else "none")
+        else:
+            period_key = ("range", "none")
+
+    base_view_key = (
+        st.session_state.df_version,
+        st.session_state.categories_applied_sig,
+        selected_venue,
+        period_key,
+    )
+    base_full_key = (
+        st.session_state.df_version,
+        st.session_state.categories_applied_sig,
+        selected_venue,
+    )
+
     # --- НАВИГАЦИЯ ---
     tab_options = ["🔥 Инфляция", "📉 Динамика и Поставщики", "🍰 Меню и Косты", "⭐ Матрица (ABC)", "🗓 Дни недели", "📦 План Закупок", "🔮 Симулятор"]
     
@@ -1249,7 +1429,11 @@ if st.session_state.df_full is not None:
              target_ts = pd.to_datetime(target_date)
 
         df_inflation_scope = df_full[df_full['Дата_Отчета'] <= target_ts]
-        total_gross_loss, total_gross_save, df_inf = compute_inflation_metrics(df_inflation_scope, df_view)
+        infl_key = ("inflation", base_view_key, str(target_ts.date()))
+        total_gross_loss, total_gross_save, df_inf = get_view_cached(
+            infl_key,
+            lambda: compute_inflation_metrics(df_inflation_scope, df_view)
+        )
         
         net_result = total_gross_loss - total_gross_save
         inf1, inf2, inf3 = st.columns(3)
@@ -1295,7 +1479,10 @@ if st.session_state.df_full is not None:
         
         with c_dyn1:
             st.write("### 🔍 Как менялась цена закупки?")
-            all_items = sorted(df_full['Блюдо'].unique())
+            all_items = get_view_cached(
+                ("all_items", base_full_key),
+                lambda: sorted(df_full['Блюдо'].astype(str).unique())
+            )
             selected_item = st.selectbox("Выберите товар/блюдо:", all_items)
             item_data = df_full[df_full['Блюдо'] == selected_item].sort_values('Дата_Отчета')
             
@@ -1325,8 +1512,10 @@ if st.session_state.df_full is not None:
             st.write("### 🏆 Топ Поставщиков")
             # Проверяем наличие колонки перед группировкой
             if 'Поставщик' in df_view.columns:
-                supplier_stats = df_view.groupby('Поставщик')['Себестоимость'].sum().reset_index()
-                supplier_stats = supplier_stats[supplier_stats['Поставщик'] != 'Не указан'].sort_values('Себестоимость', ascending=False).head(10)
+                supplier_stats = get_view_cached(
+                    ("supplier_stats", base_view_key),
+                    lambda: compute_supplier_stats(df_view)
+                )
                 
                 if not supplier_stats.empty:
                     fig_sup = px.bar(supplier_stats, x='Себестоимость', y='Поставщик', orientation='h', text_auto='.0s', color='Себестоимость')
@@ -1340,22 +1529,20 @@ if st.session_state.df_full is not None:
     elif selected_tab == "🍰 Меню и Косты":
         view_mode = st.radio("Детализация категорий:", ["🔍 Укрупненно (Макро-группы)", "🔬 Детально (Микро-категории)"], horizontal=True)
         target_cat = 'Макро_Категория' if 'Макро' in view_mode else 'Категория'
+        df_cat, df_menu = get_view_cached(
+            ("menu_tab", base_view_key, target_cat),
+            lambda: compute_menu_tab_data(df_view, target_cat)
+        )
 
         c1, c2 = st.columns([1, 1])
         with c1:
             st.subheader("Структура выручки")
-            df_cat = df_view.groupby(target_cat)['Выручка с НДС'].sum().reset_index()
             fig_pie = px.pie(df_cat, values='Выручка с НДС', names=target_cat, hole=0.4)
             fig_pie.update_traces(hovertemplate='%{label}: %{value:,.0f} ₽ (%{percent})')
             st.plotly_chart(update_chart_layout(fig_pie), use_container_width=True)
         
         with c2:
             st.subheader("📊 Детальный анализ Фуд-коста")
-            df_menu = df_view.groupby(['Блюдо', target_cat]).agg({'Выручка с НДС': 'sum', 'Себестоимость': 'sum', 'Количество': 'sum'}).reset_index()
-            df_menu['Фудкост %'] = np.where(df_menu['Выручка с НДС']>0, df_menu['Себестоимость']/df_menu['Выручка с НДС']*100, 0)
-            df_menu = df_menu.sort_values('Выручка с НДС', ascending=False).head(50)
-            df_menu = df_menu.rename(columns={target_cat: 'Категория'})
-            
             # Highlight High FC > 26%
             def highlight_fc(s):
                 return ['color: #FF4B4B; font-weight: bold' if v > 26 else '' for v in s]
@@ -1446,20 +1633,14 @@ if st.session_state.df_full is not None:
         col_L3.success("❓ **Загадки**\n\nВысокая маржа, Мало продаж.\n(Зел)")
         col_L4.error("🐶 **Собаки**\n\nНизкая маржа, Мало продаж.\n(Крас)")
 
-        abc_df = df_view.groupby('Блюдо').agg({'Количество': 'sum', 'Выручка с НДС': 'sum', 'Себестоимость': 'sum'}).reset_index()
-        abc_df = abc_df[abc_df['Количество'] > 0]
-        abc_df['Маржа'] = abc_df['Выручка с НДС'] - abc_df['Себестоимость']
-        abc_df['Unit_Margin'] = abc_df['Маржа'] / abc_df['Количество']
-        avg_qty = abc_df['Количество'].mean()
-        avg_margin = abc_df['Unit_Margin'].mean()
-        
-        def classify_abc(row):
-            if row['Unit_Margin'] >= avg_margin and row['Количество'] >= avg_qty: return "⭐ Звезда"
-            if row['Unit_Margin'] < avg_margin and row['Количество'] >= avg_qty: return "🐎 Лошадка"
-            if row['Unit_Margin'] >= avg_margin and row['Количество'] < avg_qty: return "❓ Загадка"
-            return "🐶 Собака"
+        abc_df, avg_qty, avg_margin = get_view_cached(
+            ("abc", base_view_key),
+            lambda: compute_abc_data(df_view)
+        )
+        if abc_df.empty:
+            st.info("Недостаточно данных для ABC-матрицы.")
+            st.stop()
 
-        abc_df['Класс'] = abc_df.apply(classify_abc, axis=1)
         # Исправленные цвета: Звезды=Синий, Лошадки=Золотой, Загадки=Зеленый, Собаки=Красный
         fig_abc = px.scatter(abc_df, x="Количество", y="Unit_Margin", color="Класс", hover_name="Блюдо", size="Выручка с НДС", 
                              color_discrete_map={"⭐ Звезда": "blue", "🐎 Лошадка": "gold", "❓ Загадка": "green", "🐶 Собака": "red"}, log_x=True)
@@ -1472,11 +1653,10 @@ if st.session_state.df_full is not None:
     elif selected_tab == "🗓 Дни недели":
         st.subheader("🗓 Дни недели")
         if len(dates_list) > 1:
-            df_full['ДеньНедели'] = df_full['Дата_Отчета'].dt.day_name()
-            days_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-            days_rus = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"]
-            dow_stats = df_full.groupby(['Дата_Отчета', 'ДеньНедели'])['Выручка с НДС'].sum().reset_index().groupby('ДеньНедели')['Выручка с НДС'].mean().reindex(days_order).reset_index()
-            dow_stats['ДеньРус'] = days_rus
+            dow_stats = get_view_cached(
+                ("dow", base_full_key),
+                lambda: compute_weekday_stats(df_full)
+            )
             fig_dow = px.bar(dow_stats, x='ДеньРус', y='Выручка с НДС', color='Выручка с НДС')
             fig_dow.update_traces(texttemplate='%{y:,.0f} ₽', textposition='auto')
             st.plotly_chart(update_chart_layout(fig_dow), use_container_width=True)
@@ -1489,17 +1669,10 @@ if st.session_state.df_full is not None:
         c_set1, c_set2 = st.columns(2)
         days_to_buy = c_set1.slider("📅 Дней закупки", 1, 14, 3)
         safety_stock = c_set2.slider("🛡 Запас (%)", 0, 50, 10)
-        
-        last_30_days = df_full['Дата_Отчета'].max() - timedelta(days=30)
-        df_recent = df_full[df_full['Дата_Отчета'] >= last_30_days]
-        daily_sales = df_recent.groupby('Блюдо')['Количество'].sum().reset_index()
-        daily_sales['Avg_Daily_Qty'] = daily_sales['Количество'] / 30
-        last_prices = df_full.sort_values('Дата_Отчета').groupby('Блюдо')['Unit_Cost'].last().reset_index()
-        plan_df = pd.merge(daily_sales[['Блюдо', 'Avg_Daily_Qty']], last_prices, on='Блюдо')
-        
-        plan_df['Need_Qty'] = plan_df['Avg_Daily_Qty'] * days_to_buy * (1 + safety_stock/100)
-        plan_df['Budget'] = plan_df['Need_Qty'] * plan_df['Unit_Cost']
-        plan_df = plan_df[plan_df['Need_Qty'] > 0.5].sort_values('Budget', ascending=False)
+        plan_df = get_view_cached(
+            ("plan", base_full_key, days_to_buy, safety_stock),
+            lambda: compute_purchase_plan(df_full, days_to_buy, safety_stock)
+        )
         
         st.metric("💰 Бюджет", f"{plan_df['Budget'].sum():,.0f} ₽")
         st.dataframe(
@@ -1523,7 +1696,10 @@ if st.session_state.df_full is not None:
             st.write("### 🎛 Настройки")
             
             # 1. Выбор категорий
-            all_cats = sorted(df_full['Категория'].dropna().unique())
+            all_cats = get_view_cached(
+                ("sim_all_cats", base_full_key),
+                lambda: sorted(df_full['Категория'].dropna().astype(str).unique())
+            )
             selected_cats = st.multiselect("Выберите категории:", all_cats, default=all_cats[:3] if len(all_cats) > 3 else all_cats)
             
             if not selected_cats:
@@ -1538,27 +1714,20 @@ if st.session_state.df_full is not None:
 
         with col_result:
             if selected_cats:
-                # Фильтрация данных
-                df_sim = df_view[df_view['Категория'].isin(selected_cats)].copy()
-                
-                # Базовые показатели
-                base_revenue = df_sim['Выручка с НДС'].sum()
-                base_cost_total = df_sim['Себестоимость'].sum()
-                base_margin = base_revenue - base_cost_total
-                base_qty = df_sim['Количество'].sum()
-                
-                # Симуляция
-                # Новая цена = Старая цена * (1 + %) -> Новая выручка на ед. = Старая выручка * (1 + %)
-                # Новая с/с = Старая с/с * (1 + %)
-                # Новое кол-во = Старое кол-во * (1 + %)
-                
-                sim_revenue = base_revenue * (1 + delta_price/100) * (1 + delta_vol/100)
-                sim_cost_total = base_cost_total * (1 + delta_cost/100) * (1 + delta_vol/100)
-                sim_margin = sim_revenue - sim_cost_total
-                
-                # Дельты
-                diff_rev = sim_revenue - base_revenue
-                diff_margin = sim_margin - base_margin
+                sim_data = get_view_cached(
+                    ("sim_data", base_view_key, tuple(selected_cats), delta_price, delta_cost, delta_vol),
+                    lambda: compute_simulation(df_view, selected_cats, delta_price, delta_cost, delta_vol)
+                )
+                if sim_data is None:
+                    st.warning("Нет данных по выбранным категориям.")
+                    st.stop()
+
+                base_revenue = sim_data['base_revenue']
+                base_margin = sim_data['base_margin']
+                sim_revenue = sim_data['sim_revenue']
+                sim_margin = sim_data['sim_margin']
+                diff_rev = sim_data['diff_rev']
+                diff_margin = sim_data['diff_margin']
                 
                 st.write(f"### 📊 Прогноз результата (Категории: {len(selected_cats)})")
                 
@@ -1567,8 +1736,8 @@ if st.session_state.df_full is not None:
                 kpi1.metric("Выручка (Sim)", f"{sim_revenue:,.0f} ₽", f"{diff_rev:+,.0f} ₽")
                 kpi2.metric("Маржа (Sim)", f"{sim_margin:,.0f} ₽", f"{diff_margin:+,.0f} ₽")
                 
-                new_profitability = (sim_margin / sim_revenue * 100) if sim_revenue > 0 else 0
-                old_profitability = (base_margin / base_revenue * 100) if base_revenue > 0 else 0
+                new_profitability = sim_data['new_profitability']
+                old_profitability = sim_data['old_profitability']
                 kpi3.metric("Рентабельность", f"{new_profitability:.1f}%", f"{new_profitability - old_profitability:+.1f}%")
                 
                 st.markdown("---")
