@@ -234,6 +234,25 @@ def setup_style():
             box-shadow: 0 10px 32px rgba(8, 21, 48, 0.28);
             animation: glassFadeUp var(--anim-mid) var(--ease-fluid);
             transition: transform var(--anim-fast) var(--ease-fluid), box-shadow var(--anim-mid) var(--ease-soft), border-color var(--anim-fast) ease;
+            overflow: hidden !important;
+        }
+
+        [data-testid="stExpander"] details {
+            border-radius: 16px !important;
+            overflow: hidden !important;
+            background: linear-gradient(165deg, rgba(170, 212, 255, 0.12), rgba(118, 182, 255, 0.08)) !important;
+        }
+
+        [data-testid="stExpander"] summary {
+            border-radius: 14px !important;
+            border: none !important;
+            background: transparent !important;
+        }
+
+        [data-testid="stExpander"] [data-testid="stExpanderDetails"] {
+            background: linear-gradient(175deg, rgba(182, 221, 255, 0.10), rgba(119, 182, 255, 0.07)) !important;
+            border-top: 1px solid rgba(226, 244, 255, 0.17);
+            border-radius: 0 0 14px 14px !important;
         }
 
         .streamlit-expanderHeader {
@@ -276,6 +295,13 @@ def setup_style():
             border: 1px solid rgba(225, 243, 255, 0.32) !important;
             border-radius: 12px !important;
             backdrop-filter: blur(10px);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 8px 22px rgba(8, 24, 50, 0.22);
+        }
+
+        [data-baseweb="input"] > div:focus-within,
+        [data-baseweb="select"] > div:focus-within {
+            border-color: rgba(220, 243, 255, 0.70) !important;
+            box-shadow: 0 0 0 2px rgba(126, 199, 255, 0.26), 0 10px 24px rgba(7, 28, 58, 0.30) !important;
         }
 
         [data-testid="stDataFrame"] {
@@ -365,6 +391,60 @@ def setup_style():
                 transition: none !important;
             }
         }
+
+        .ra-loading-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: radial-gradient(40rem 20rem at 20% 10%, rgba(142, 208, 255, 0.24), rgba(5, 10, 19, 0.74)),
+                        linear-gradient(180deg, rgba(3, 9, 18, 0.72), rgba(6, 12, 22, 0.78));
+            backdrop-filter: blur(12px) saturate(120%);
+            -webkit-backdrop-filter: blur(12px) saturate(120%);
+        }
+
+        .ra-loading-card {
+            min-width: 320px;
+            max-width: 540px;
+            border-radius: 22px;
+            padding: 24px 26px;
+            border: 1px solid rgba(228, 245, 255, 0.42);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.30);
+            background: linear-gradient(165deg, rgba(183, 223, 255, 0.16), rgba(125, 187, 255, 0.10));
+            text-align: center;
+        }
+
+        .ra-loading-orb {
+            width: 56px;
+            height: 56px;
+            margin: 0 auto 12px;
+            border-radius: 999px;
+            border: 2px solid rgba(220, 244, 255, 0.35);
+            border-top-color: rgba(122, 204, 255, 0.95);
+            border-right-color: rgba(174, 228, 255, 0.88);
+            animation: raSpin 0.95s linear infinite;
+            box-shadow: 0 0 24px rgba(124, 205, 255, 0.45), inset 0 0 16px rgba(194, 236, 255, 0.30);
+        }
+
+        .ra-loading-title {
+            font-size: 1.2rem;
+            font-weight: 800;
+            margin-bottom: 6px;
+            color: #f2f8ff;
+            letter-spacing: -0.01em;
+        }
+
+        .ra-loading-sub {
+            color: rgba(232, 244, 255, 0.84);
+            font-size: 0.96rem;
+        }
+
+        @keyframes raSpin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -403,6 +483,20 @@ def setup_parallax():
     """, height=0)
 
 setup_parallax()
+
+def show_loading_overlay(message="Скачиваем и обрабатываем данные"):
+    st.markdown(
+        f"""
+        <div class="ra-loading-overlay">
+          <div class="ra-loading-card">
+            <div class="ra-loading-orb"></div>
+            <div class="ra-loading-title">Подготовка отчета</div>
+            <div class="ra-loading-sub">{message}</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 # --- ИНИЦИАЛИЗАЦИЯ ПАМЯТИ ---
 if 'df_full' not in st.session_state:
@@ -575,7 +669,7 @@ def compute_simulation(df_view_scope, selected_cats, delta_price, delta_cost, de
         'old_profitability': old_profitability,
     }
 
-@st.cache_data(ttl=3600, show_spinner="Скачиваем данные с Яндекс.Диска...")
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_all_from_yandex(root_path):
     token = get_secret("YANDEX_TOKEN")
     if not token: return [], {'count': 0, 'cost': 0.0, 'items': []}
@@ -817,6 +911,7 @@ if st.session_state.df_full is None and os.path.exists(CACHE_FILE):
 # --- 1. SIDEBAR: DATA LOADING ---
 # --- 1. SIDEBAR: DATA LOADING ---
 is_admin = st.session_state.is_admin
+main_loader_slot = st.empty()
 with st.sidebar:
     st.title("🎛 Меню")
 
@@ -855,7 +950,10 @@ with st.sidebar:
                 if not get_secret("YANDEX_TOKEN"):
                      st.error("⚠️ Нет токена!")
                 else:
+                    with main_loader_slot.container():
+                        show_loading_overlay("Скачиваем данные с Яндекс.Диска и собираем витрину…")
                     temp_data, dropped_load = load_all_from_yandex(yandex_path)
+                    main_loader_slot.empty()
                     if temp_data:
                         set_df_full(pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета'))
                         
@@ -872,7 +970,10 @@ with st.sidebar:
         elif source_mode == "Локальная папка":
             local_path = st.text_input("Путь к папке:", ".")
             if st.button(" Сканировать папку", type="primary", use_container_width=True):
+                with main_loader_slot.container():
+                    show_loading_overlay("Сканируем локальную папку и обрабатываем файлы…")
                 temp_data, dropped_load = load_from_local_folder(local_path)
+                main_loader_slot.empty()
                 if temp_data:
                     set_df_full(pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета'))
                     
@@ -889,6 +990,8 @@ with st.sidebar:
         elif source_mode == "Ручная загрузка":
             uploaded_files = st.file_uploader("Загрузить (CSV/Excel)", accept_multiple_files=True)
             if uploaded_files and st.button("📥 Обработать файлы", type="primary", use_container_width=True):
+                with main_loader_slot.container():
+                    show_loading_overlay("Читаем загруженные файлы и считаем показатели…")
                 temp_data = []
                 st.session_state.dropped_stats = {'count': 0, 'cost': 0.0, 'items': []}
                 
@@ -913,7 +1016,9 @@ with st.sidebar:
                 if temp_data:
                     set_df_full(pd.concat(temp_data, ignore_index=True).sort_values(by='Дата_Отчета'))
                     st.success("Файлы обработаны!")
+                    main_loader_slot.empty()
                     st.rerun()
+                main_loader_slot.empty()
 
     # --- ADVANCED OPTIONS (Cache, Reset) ---
     with st.expander("⚙️ Технические опции"):
