@@ -15,20 +15,20 @@ from datetime import datetime, timedelta
 def update_chart_layout(fig):
     fig.update_layout(
         template="plotly_dark",
-        font=dict(family="Inter, sans-serif", size=13, color="#E0E0E0"),
+        font=dict(family="Manrope, sans-serif", size=13, color="#EAF2FF"),
         margin=dict(l=20, r=20, t=50, b=20),
         paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(255,255,255,0.02)", # Slight highlight
+        plot_bgcolor="rgba(185,220,255,0.06)",
         hovermode="x unified",
         xaxis=dict(
-            showgrid=False, 
-            zeroline=False, 
-            showline=True, 
-            linecolor="rgba(255,255,255,0.2)"
+            showgrid=False,
+            zeroline=False,
+            showline=True,
+            linecolor="rgba(210,230,255,0.28)"
         ),
         yaxis=dict(
-            showgrid=True, 
-            gridcolor="rgba(255,255,255,0.08)", 
+            showgrid=True,
+            gridcolor="rgba(186,218,255,0.12)",
             zeroline=False
         ),
         legend=dict(
@@ -56,108 +56,220 @@ st.title("📊 Аналитика: Бар МЕСТО")
 def setup_style():
     st.markdown("""
     <style>
-        /* Import Inter Font */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@500;700&display=swap');
 
-        html, body, [class*="css"] {
-            font-family: 'Inter', sans-serif;
-            background-color: #0e1117; /* Dark background base */
+        :root {
+            --glass-bg: rgba(167, 210, 255, 0.11);
+            --glass-bg-strong: rgba(187, 223, 255, 0.17);
+            --glass-border: rgba(234, 247, 255, 0.35);
+            --glass-shadow: 0 14px 42px rgba(4, 18, 42, 0.35);
+            --text-main: #f3f8ff;
+            --text-soft: rgba(234, 244, 255, 0.72);
+            --accent: #73c3ff;
+            --accent-2: #9fe5ff;
         }
 
-        /* --- GLASSMORPHISM SIDEBAR --- */
+        html, body, .stApp {
+            font-family: 'Manrope', 'Plus Jakarta Sans', sans-serif;
+            color: var(--text-main);
+            background:
+                radial-gradient(55rem 28rem at 10% -5%, rgba(111, 198, 255, 0.30), transparent 65%),
+                radial-gradient(50rem 24rem at 95% 0%, rgba(145, 125, 255, 0.20), transparent 62%),
+                radial-gradient(38rem 20rem at 50% 110%, rgba(70, 180, 255, 0.18), transparent 60%),
+                linear-gradient(180deg, #08101d 0%, #0a1422 48%, #0b1420 100%);
+            background-attachment: fixed;
+        }
+
+        .stApp::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background:
+                radial-gradient(18rem 18rem at 14% 24%, rgba(255, 255, 255, 0.07), transparent 70%),
+                radial-gradient(22rem 22rem at 84% 68%, rgba(155, 220, 255, 0.07), transparent 74%);
+            filter: blur(1px);
+            z-index: 0;
+        }
+
+        .main .block-container {
+            position: relative;
+            z-index: 1;
+            padding-top: 1.6rem;
+            padding-bottom: 2rem;
+        }
+
+        h1, h2, h3 {
+            font-weight: 800;
+            letter-spacing: -0.04em;
+            color: var(--text-main);
+            text-shadow: 0 4px 20px rgba(106, 190, 255, 0.22);
+        }
+
+        p, label, span, div {
+            color: var(--text-main);
+        }
+
         [data-testid="stSidebar"] {
-            background-color: rgba(17, 17, 17, 0.7) !important;
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+            background: linear-gradient(165deg, rgba(173, 216, 255, 0.10), rgba(119, 186, 255, 0.07)) !important;
+            backdrop-filter: blur(18px) saturate(150%);
+            -webkit-backdrop-filter: blur(18px) saturate(150%);
+            border-right: 1px solid rgba(228, 244, 255, 0.22) !important;
+            box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.14), 8px 0 30px rgba(5, 18, 45, 0.25);
         }
 
-        /* --- GLASS METRIC CARDS --- */
-        [data-testid="stMetric"] {
-            background: rgba(45, 45, 45, 0.4) !important; /* Lighter tint */
-            backdrop-filter: blur(18px); /* Deeper blur */
-            -webkit-backdrop-filter: blur(18px);
-            padding: 15px !important;
-            border-radius: 16px !important; /* More iOS-like */
-            border: 1px solid rgba(255, 255, 255, 0.15) !important; /* Stronger border */
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37) !important; /* Deeper shadow */
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        [data-testid="stSidebar"] * {
+            color: var(--text-main) !important;
         }
-        
+
+        [data-testid="stMetric"],
+        [data-testid="stVerticalBlock"] > [data-testid="element-container"] > div:has([data-testid="stDataFrame"]) {
+            border: 1px solid var(--glass-border) !important;
+            box-shadow: var(--glass-shadow) !important;
+        }
+
+        [data-testid="stMetric"] {
+            position: relative;
+            overflow: hidden;
+            background: linear-gradient(155deg, var(--glass-bg-strong), rgba(129, 189, 255, 0.08)) !important;
+            backdrop-filter: blur(18px) saturate(140%);
+            -webkit-backdrop-filter: blur(18px) saturate(140%);
+            padding: 15px !important;
+            border-radius: 18px !important;
+            transition: transform 0.18s ease, box-shadow 0.22s ease, border-color 0.2s ease;
+        }
+
+        [data-testid="stMetric"]::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            background: linear-gradient(125deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.01) 45%);
+            pointer-events: none;
+        }
+
         [data-testid="stMetric"]:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5) !important;
-            border: 1px solid rgba(255, 255, 255, 0.25) !important;
-            background: rgba(60, 60, 60, 0.5) !important;
+            transform: translateY(-3px) scale(1.01);
+            border-color: rgba(222, 244, 255, 0.52) !important;
+            box-shadow: 0 20px 45px rgba(7, 23, 51, 0.46) !important;
+            background: linear-gradient(160deg, rgba(189, 228, 255, 0.19), rgba(130, 192, 255, 0.10)) !important;
         }
 
         [data-testid="stMetricLabel"] {
             font-size: 14px;
-            color: rgba(255, 255, 255, 0.6);
+            color: var(--text-soft) !important;
         }
 
         [data-testid="stMetricValue"] {
             font-size: 26px;
-            font-weight: 600;
-            color: #FFF;
+            font-weight: 700;
+            color: var(--text-main);
         }
-        
+
         [data-testid="stMetricDelta"] {
             font-size: 14px;
         }
 
-        /* --- HEADERS & TEXT --- */
-        h1, h2, h3 {
-            font-weight: 600;
-            letter-spacing: -0.5px;
-            color: #FFF;
-        }
-        
-        /* --- EXPANDER STYLING (GLASS) --- */
-        .streamlit-expanderHeader {
-            background-color: rgba(30, 30, 30, 0.5);
+        [data-testid="stMarkdownContainer"] code {
+            background: rgba(150, 205, 255, 0.18);
+            border: 1px solid rgba(218, 242, 255, 0.27);
             border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
-        
-        /* --- BUTTONS (Optional Polish) --- */
-        button[kind="primary"] {
-            background: linear-gradient(135deg, #FF4B4B 0%, #FF2B2B 100%);
-            border: none;
-            box-shadow: 0 4px 12px rgba(255, 75, 75, 0.3);
-            transition: all 0.3s ease;
-        }
-        button[kind="primary"]:hover {
-            box-shadow: 0 6px 16px rgba(255, 75, 75, 0.5);
-            transform: translateY(-2px);
+            padding: 0.1rem 0.32rem;
         }
 
-        /* --- SIDEBAR ELEMENTS --- */
+        [data-testid="stExpander"] {
+            background: linear-gradient(160deg, rgba(178, 220, 255, 0.09), rgba(120, 183, 255, 0.06)) !important;
+            border: 1px solid rgba(228, 244, 255, 0.25) !important;
+            border-radius: 16px !important;
+            backdrop-filter: blur(13px) saturate(130%);
+            -webkit-backdrop-filter: blur(13px) saturate(130%);
+            box-shadow: 0 10px 32px rgba(8, 21, 48, 0.28);
+        }
+
+        .streamlit-expanderHeader {
+            background-color: transparent;
+            border-radius: 12px;
+        }
+
+        button[kind="primary"] {
+            background: linear-gradient(135deg, #7ec9ff 0%, #64b8ff 48%, #95dcff 100%) !important;
+            color: #06203e !important;
+            border: 1px solid rgba(230, 247, 255, 0.6) !important;
+            box-shadow: 0 10px 24px rgba(52, 148, 220, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+            transition: transform 0.17s ease, box-shadow 0.22s ease;
+            font-weight: 700;
+        }
+
+        button[kind="primary"]:hover {
+            box-shadow: 0 16px 30px rgba(60, 156, 231, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.78);
+            transform: translateY(-2px) scale(1.01);
+        }
+
+        button[kind="secondary"] {
+            background: linear-gradient(150deg, rgba(192, 228, 255, 0.16), rgba(141, 197, 255, 0.09)) !important;
+            border: 1px solid rgba(224, 243, 255, 0.32) !important;
+            border-radius: 12px !important;
+            color: var(--text-main) !important;
+            backdrop-filter: blur(10px) saturate(120%);
+            -webkit-backdrop-filter: blur(10px) saturate(120%);
+        }
+
         .stSelectbox label, .stRadio label {
             font-weight: 600 !important;
-            color: rgba(255,255,255,0.9) !important;
+            color: var(--text-main) !important;
         }
 
-        /* --- TABLE STYLING --- */
-        [data-testid="stDataFrame"] {
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            overflow: hidden;
+        [data-baseweb="select"] > div,
+        [data-baseweb="input"] > div {
+            background: linear-gradient(160deg, rgba(190, 226, 255, 0.15), rgba(138, 192, 248, 0.08)) !important;
+            border: 1px solid rgba(225, 243, 255, 0.32) !important;
+            border-radius: 12px !important;
+            backdrop-filter: blur(10px);
         }
-        
-        /* --- STREAMLIT HEADER --- */
+
+        [data-testid="stDataFrame"] {
+            border-radius: 14px;
+            border: 1px solid rgba(228, 243, 255, 0.28);
+            overflow: hidden;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            box-shadow: 0 8px 30px rgba(6, 18, 41, 0.3);
+        }
+
+        [role="tablist"] {
+            gap: 0.45rem;
+            flex-wrap: wrap;
+        }
+
+        [role="tab"] {
+            border-radius: 999px !important;
+            border: 1px solid rgba(222, 240, 255, 0.26) !important;
+            background: linear-gradient(160deg, rgba(176, 219, 255, 0.12), rgba(130, 186, 255, 0.07)) !important;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            padding: 0.4rem 0.9rem !important;
+        }
+
         header[data-testid="stHeader"] {
             background: transparent !important;
-            backdrop-filter: blur(5px);
+            backdrop-filter: blur(6px);
         }
 
-        /* Remove Deploy Button & Padding */
         #MainMenu {visibility: hidden;}
-        .block-container {
-            padding-top: 2rem;
-            padding-bottom: 2rem;
+
+        @media (max-width: 768px) {
+            [data-testid="stSidebar"] {
+                border-right: none !important;
+            }
+            [data-testid="stMetricValue"] {
+                font-size: 22px;
+            }
+            .main .block-container {
+                padding-top: 1rem;
+                padding-left: 0.75rem;
+                padding-right: 0.75rem;
+            }
         }
-        
     </style>
     """, unsafe_allow_html=True)
 
