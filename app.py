@@ -636,6 +636,7 @@ def compute_weekday_stats(df_scope):
         .reset_index()
         .sort_values('Дата_Отчета')
     )
+    daily['ИндексДня'] = np.arange(1, len(daily) + 1)
     daily['ДеньНедели'] = daily['Дата_Отчета'].dt.day_name()
     daily['ДеньРус'] = daily['ДеньНедели'].map(days_rus_map)
     daily['Дата_Подпись'] = daily['Дата_Отчета'].dt.strftime('%d.%m')
@@ -1771,13 +1772,32 @@ if st.session_state.df_full is not None:
             ("menu_tab", base_view_key, target_cat),
             lambda: compute_menu_tab_data(df_view, target_cat)
         )
+        df_cat_prev = pd.DataFrame()
+        if not df_prev.empty:
+            df_cat_prev, _ = get_view_cached(
+                ("menu_tab_prev", base_view_key, target_cat, prev_label),
+                lambda: compute_menu_tab_data(df_prev, target_cat)
+            )
 
-        c1, c2 = st.columns([1, 1])
+        c1, c2 = st.columns([1.2, 1])
         with c1:
             st.subheader("Структура выручки")
-            fig_pie = px.pie(df_cat, values='Выручка с НДС', names=target_cat, hole=0.4)
-            fig_pie.update_traces(hovertemplate='%{label}: %{value:,.0f} ₽ (%{percent})')
-            st.plotly_chart(update_chart_layout(fig_pie), use_container_width=True)
+            if not df_cat_prev.empty:
+                p1, p2 = st.columns(2)
+                with p1:
+                    st.caption(f"Текущий: {period_title_base}")
+                    fig_pie_cur = px.pie(df_cat, values='Выручка с НДС', names=target_cat, hole=0.45)
+                    fig_pie_cur.update_traces(hovertemplate='%{label}: %{value:,.0f} ₽ (%{percent})')
+                    st.plotly_chart(update_chart_layout(fig_pie_cur), use_container_width=True)
+                with p2:
+                    st.caption(f"Сравнение: {prev_label}")
+                    fig_pie_prev = px.pie(df_cat_prev, values='Выручка с НДС', names=target_cat, hole=0.45)
+                    fig_pie_prev.update_traces(hovertemplate='%{label}: %{value:,.0f} ₽ (%{percent})')
+                    st.plotly_chart(update_chart_layout(fig_pie_prev), use_container_width=True)
+            else:
+                fig_pie = px.pie(df_cat, values='Выручка с НДС', names=target_cat, hole=0.4)
+                fig_pie.update_traces(hovertemplate='%{label}: %{value:,.0f} ₽ (%{percent})')
+                st.plotly_chart(update_chart_layout(fig_pie), use_container_width=True)
         
         with c2:
             st.subheader("📊 Детальный анализ Фуд-коста")
@@ -1895,26 +1915,64 @@ if st.session_state.df_full is not None:
                 ("dow", base_view_key),
                 lambda: compute_weekday_stats(df_view)
             )
+            daily_prev = pd.DataFrame()
+            weekday_prev = pd.DataFrame()
+            if not df_prev.empty:
+                daily_prev, weekday_prev = get_view_cached(
+                    ("dow_prev", base_view_key, prev_label),
+                    lambda: compute_weekday_stats(df_prev)
+                )
             if daily_stats.empty:
                 st.info("Нет данных за выбранный период.")
             else:
                 col_d1, col_d2 = st.columns([1.8, 1])
                 with col_d1:
-                    st.write("### Выручка по дням периода")
-                    fig_daily = px.bar(
-                        daily_stats,
-                        x='Дата_Подпись',
-                        y='Выручка с НДС',
-                        color='Выручка с НДС',
-                        hover_data={'Дата_Отчета': True, 'ДеньРус': True}
-                    )
-                    fig_daily.update_traces(texttemplate='%{y:,.0f} ₽', textposition='outside')
-                    fig_daily.update_layout(xaxis_title="Дата", yaxis_title="Выручка")
+                    if not daily_prev.empty:
+                        st.write("### Выручка по дням: текущий vs сравнение")
+                        cur_cmp = daily_stats[['ИндексДня', 'Выручка с НДС']].rename(columns={'Выручка с НДС': 'Текущий'})
+                        prev_cmp = daily_prev[['ИндексДня', 'Выручка с НДС']].rename(columns={'Выручка с НДС': 'Сравнение'})
+                        merged = pd.merge(cur_cmp, prev_cmp, on='ИндексДня', how='outer').fillna(0)
+                        long_cmp = merged.melt(id_vars='ИндексДня', value_vars=['Текущий', 'Сравнение'], var_name='Период', value_name='Выручка с НДС')
+                        fig_daily = px.bar(
+                            long_cmp,
+                            x='ИндексДня',
+                            y='Выручка с НДС',
+                            color='Период',
+                            barmode='group',
+                            color_discrete_map={'Текущий': '#6ec8ff', 'Сравнение': '#ffb86b'}
+                        )
+                        fig_daily.update_layout(xaxis_title="День периода", yaxis_title="Выручка")
+                    else:
+                        st.write("### Выручка по дням периода")
+                        fig_daily = px.bar(
+                            daily_stats,
+                            x='Дата_Подпись',
+                            y='Выручка с НДС',
+                            color='Выручка с НДС',
+                            hover_data={'Дата_Отчета': True, 'ДеньРус': True}
+                        )
+                        fig_daily.update_traces(texttemplate='%{y:,.0f} ₽', textposition='outside')
+                        fig_daily.update_layout(xaxis_title="Дата", yaxis_title="Выручка")
                     st.plotly_chart(update_chart_layout(fig_daily), use_container_width=True)
 
                 with col_d2:
-                    st.write("### Средняя по дням недели")
-                    fig_dow = px.bar(weekday_avg, x='ДеньРус', y='Выручка с НДС', color='Выручка с НДС')
+                    if not weekday_prev.empty:
+                        st.write("### Средняя по дням недели")
+                        cur_w = weekday_avg[['ДеньРус', 'Выручка с НДС']].rename(columns={'Выручка с НДС': 'Текущий'})
+                        prev_w = weekday_prev[['ДеньРус', 'Выручка с НДС']].rename(columns={'Выручка с НДС': 'Сравнение'})
+                        week_cmp = pd.merge(cur_w, prev_w, on='ДеньРус', how='outer').fillna(0)
+                        week_cmp = week_cmp.melt(id_vars='ДеньРус', value_vars=['Текущий', 'Сравнение'], var_name='Период', value_name='Выручка с НДС')
+                        fig_dow = px.bar(
+                            week_cmp,
+                            x='ДеньРус',
+                            y='Выручка с НДС',
+                            color='Период',
+                            barmode='group',
+                            color_discrete_map={'Текущий': '#6ec8ff', 'Сравнение': '#ffb86b'}
+                        )
+                    else:
+                        st.write("### Средняя по дням недели")
+                        fig_dow = px.bar(weekday_avg, x='ДеньРус', y='Выручка с НДС', color='Выручка с НДС')
                     fig_dow.update_traces(texttemplate='%{y:,.0f} ₽', textposition='auto')
                     st.plotly_chart(update_chart_layout(fig_dow), use_container_width=True)
         else:
