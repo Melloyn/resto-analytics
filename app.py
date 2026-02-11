@@ -655,7 +655,11 @@ if st.session_state.df_full is not None:
                     # 1. Prepare Data
                     exp_df = df.copy()
                     
-                    # Calculate Cost % if missing
+                    # Normalize 'Cost' column name (handle 'Фудкост' if present)
+                    if 'Фудкост' in exp_df.columns and 'Кост %' not in exp_df.columns:
+                        exp_df['Кост %'] = exp_df['Фудкост']
+                    
+                    # Calculate Cost % if still missing
                     if 'Кост %' not in exp_df.columns:
                          exp_df['Кост %'] = (exp_df['Себестоимость'] / exp_df['Выручка с НДС'] * 100).fillna(0)
                     
@@ -669,6 +673,8 @@ if st.session_state.df_full is not None:
                     elif "Количеству" in sort_mode:
                         exp_df = exp_df.sort_values(by='Количество', ascending=False)
                         sort_col = 'Кол-во'
+                    else:
+                        sort_col = 'Выручка'
                     
                     # 3. Filter & Rename Columns
                     cols_map = {
@@ -680,64 +686,88 @@ if st.session_state.df_full is not None:
                         'Категория': 'Категория'
                     }
                     
+                    # Select only existing columns from the map
                     available_cols = [c for c in cols_map.keys() if c in exp_df.columns]
                     final_df = exp_df[available_cols].rename(columns=cols_map)
                     
                     # 4. Write to Excel using XlsxWriter
-                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                        final_df.to_excel(writer, index=False, sheet_name='Report')
-                        workbook  = writer.book
-                        worksheet = writer.sheets['Report']
+                    try:
+                        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                            final_df.to_excel(writer, index=False, sheet_name='Report')
+                            workbook  = writer.book
+                            worksheet = writer.sheets['Report']
 
-                        # --- FORMATTING ---
-                        money_fmt = workbook.add_format({'num_format': '#,##0', 'bold': False})
-                        header_fmt = workbook.add_format({'bold': True, 'bg_color': '#D3D3D3', 'border': 1})
-                        
-                        # Apply width and header format
-                        for col_num, value in enumerate(final_df.columns.values):
-                            worksheet.write(0, col_num, value, header_fmt)
-                            worksheet.set_column(col_num, col_num, 20) # Default width
+                            # --- FORMATTING ---
+                            # Formats
+                            fmt_header = workbook.add_format({'bold': True, 'bg_color': '#D3D3D3', 'border': 1, 'align': 'center', 'valign': 'vcenter'})
+                            fmt_money = workbook.add_format({'num_format': '#,##0 ₽'})
+                            fmt_pct = workbook.add_format({'num_format': '0.0%"'}) # Quote to avoid excel issues
+                            fmt_int = workbook.add_format({'num_format': '0'})
 
-                        # --- CHARTS ---
-                        # Create a chart object.
-                        chart = workbook.add_chart({'type': 'column'})
+                            # Apply Header Format
+                            for col_num, value in enumerate(final_df.columns.values):
+                                worksheet.write(0, col_num, value, fmt_header)
+                                
+                            # Apply Column Widths & Formats
+                            for i, col in enumerate(final_df.columns):
+                                width = 15
+                                fmt = None
+                                if col in ['Выручка', 'Себест.']:
+                                    width = 18
+                                    fmt = fmt_money
+                                elif col == 'Кост %':
+                                    width = 12
+                                    fmt = fmt_pct
+                                elif col == 'Кол-во':
+                                    width = 10
+                                    fmt = fmt_int
+                                elif col == 'Наименование':
+                                    width = 40
+                                
+                                worksheet.set_column(i, i, width, fmt)
 
-                        # Data range for top 10
-                        max_row = min(10, len(final_df))
-                        
-                        # Configure series
-                        # Values: Column based on sort_col. 
-                        # We need index of sort_col.
-                        try:
-                            val_idx = final_df.columns.get_loc(sort_col)
-                            cat_idx = final_df.columns.get_loc('Наименование')
+                            # --- CHARTS ---
+                            # Create a chart object.
+                            chart = workbook.add_chart({'type': 'column'})
+
+                            # Data range for top 10
+                            max_row = min(10, len(final_df))
                             
-                            chart.add_series({
-                                'name':       [ 'Report', 0, val_idx],
-                                'categories': [ 'Report', 1, 0, max_row, 0], # Top 10 names
-                                'values':     [ 'Report', 1, val_idx, max_row, val_idx], # Top 10 values
-                                'data_labels': {'value': True},
-                            })
+                            # Values: Column based on sort_col. 
+                            # We need index of sort_col.
+                            try:
+                                val_idx = final_df.columns.get_loc(sort_col)
+                                
+                                chart.add_series({
+                                    'name':       [ 'Report', 0, val_idx],
+                                    'categories': [ 'Report', 1, 0, max_row, 0], # Top 10 names
+                                    'values':     [ 'Report', 1, val_idx, max_row, val_idx], # Top 10 values
+                                    'data_labels': {'value': True},
+                                    'gap':        30,
+                                })
 
-                            chart.set_title ({'name': f'Топ-10: {sort_col}'})
-                            chart.set_x_axis({'name': 'Позиция'})
-                            chart.set_y_axis({'name': sort_col})
-                            chart.set_style(10) # Stylish look
+                                chart.set_title ({'name': f'Топ-10: {sort_col}'})
+                                chart.set_x_axis({'name': 'Позиция', 'major_gridlines': {'visible': False}})
+                                chart.set_y_axis({'name': sort_col, 'major_gridlines': {'visible': True, 'line': {'style': 'dash'}}})
+                                chart.set_legend({'position': 'none'})
+                                chart.set_style(11)
 
-                            # Insert chart on a new sheet or same
-                            charts_sheet = workbook.add_worksheet('Charts')
-                            charts_sheet.insert_chart('B2', chart, {'x_scale': 2, 'y_scale': 2})
-                        except:
-                            pass # Fail silently if chart logic breaks
+                                # Insert chart on a new sheet
+                                charts_sheet = workbook.add_worksheet('Charts')
+                                charts_sheet.insert_chart('B2', chart, {'x_scale': 2.5, 'y_scale': 2})
+                            except:
+                                pass # Fail silently if chart logic breaks
+                    
+                    except Exception as e_xlsx:
+                        # FALLBACK if xlsxwriter fails (module missing? engine error?)
+                        # Use openpyxl but export FINAL_DF (filtered/sorted)
+                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                             final_df.to_excel(writer, index=False, sheet_name='Report')
 
                 except Exception as e:
-                    # Fallback to openpyxl if xlsxwriter fails (though it's standard)
-                    try:
-                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                            df.to_excel(writer, index=False, sheet_name='Report')
-                    except:
-                        st.sidebar.error(f"Err: {e}")
-                        return None
+                    # General error (conversion failed)
+                    st.sidebar.error(f"Ошибка экспорта: {e}")
+                    return None
                 return output.getvalue()
 
             excel_data = convert_df(df_current, sort_opt)
