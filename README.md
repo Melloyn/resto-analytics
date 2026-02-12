@@ -22,6 +22,10 @@ pip install -r requirements.txt
 
 ```toml
 YANDEX_TOKEN = "ваш_токен"
+# поддерживаются оба варианта ключей:
+TG_BOT_TOKEN = "ваш_токен_бота"
+TG_CHAT_ID = "ваш_chat_id"
+# или:
 TELEGRAM_TOKEN = "ваш_токен_бота"
 TELEGRAM_CHAT_ID = "ваш_chat_id"
 ```

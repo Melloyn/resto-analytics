@@ -76,7 +76,7 @@ def sync_from_yandex():
                     print(f"   ℹ️ {filename}: {warn}")
 
                 if df is not None:
-                    df['Venue'] = venue
+                    df['Точка'] = venue
                     data_frames.append(df)
                     print(f"   ✅ {filename} processed.")
                 elif err:

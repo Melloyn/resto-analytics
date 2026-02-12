@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import re
 import os
+import requests
 from io import BytesIO
 from datetime import datetime
 
@@ -26,6 +27,12 @@ RUS_MONTHS = {
 RUS_MONTH_NAMES = {
     1: 'Январь', 2: 'Февраль', 3: 'Март', 4: 'Апрель', 5: 'Май', 6: 'Июнь',
     7: 'Июль', 8: 'Август', 9: 'Сентябрь', 10: 'Октябрь', 11: 'Ноябрь', 12: 'Декабрь'
+}
+
+CACHE_FILE = "data_cache.parquet"
+LAST_SYNC_META = {
+    "dropped_stats": {"count": 0, "cost": 0.0, "items": []},
+    "warnings": [],
 }
 
 # --- HELPERS ---
@@ -53,6 +60,8 @@ def detect_header_row(df_preview, required_column):
             return idx
     return None
 
+from services import category_service
+
 def get_macro_category(cat):
     if cat in ['☕ Кофе', '🍵 Чай', '🍓 Милк/Фреш/Смузи', '🧉 Коктейль Б/А', '🚰 Розлив Б/А', '🥤 Стекло/Банка Б/А']: 
         return '☕ Безалкогольное'
@@ -62,10 +71,21 @@ def get_macro_category(cat):
         return '🥃 Крепкое'
     return cat
 
-def detect_category_granular(name_input):
+def detect_category_granular(name_input, mapping=None):
     name = str(name_input).strip().lower()
     
-    # ЖЕСТКАЯ БАЗА
+    # 1. DYNAMIC MAPPING (JSON)
+    # Check exact match first
+    # mapping keys might be original case, so we should check carefully
+    # Assuming mapping keys are case-sensitive or we lower them?
+    # Let's assume exact match for now as per `admin_view` editor
+    if mapping:
+        if name in mapping:
+            return mapping[name]
+        if name_input in mapping:
+            return mapping[name_input]
+    
+    # 2. HARDCODED FALLBACK (Original Dictionary)
     manual_dict = {
         'banana tiki': '🍹 Коктейли', 'black hole': '🍹 Коктейли', 'clover club': '🍹 Коктейли', 
         'drunk bee': '🍹 Коктейли', 'milk punch бурбон-черная смородина': '🍹 Коктейли', 
@@ -292,7 +312,11 @@ def process_single_file(file_content, filename=""):
         df['Unit_Cost'] = np.where(df['Количество'] != 0, df['Себестоимость'] / df['Количество'], 0)
         df['Фудкост'] = np.where(df['Выручка с НДС'] > 0, (df['Себестоимость'] / df['Выручка с НДС'] * 100), 0)
         df = df.rename(columns={col_name: 'Блюдо'})
-        df['Категория'] = df['Блюдо'].apply(detect_category_granular)
+        
+        # Load mapping once per file (or rely on cache)
+        cat_mapping = category_service.load_categories()
+        df['Категория'] = df['Блюдо'].apply(lambda x: detect_category_granular(x, cat_mapping))
+        df['Макро_Категория'] = df['Категория'].apply(get_macro_category)
         
         # Helper for vendor
         if 'Поставщик' in df.columns:
@@ -386,3 +410,119 @@ def calculate_insights(df_curr, df_prev, cur_rev, prev_rev, cur_fc):
         })
 
     return insights
+
+def get_last_sync_meta():
+    return LAST_SYNC_META
+
+
+def download_and_process_yandex(yandex_token, yandex_path="RestoAnalytic"):
+    if not yandex_token:
+        return False, "Не задан токен Яндекс.Диска."
+
+    headers = {"Authorization": f"OAuth {yandex_token}"}
+    api_url = "https://cloud-api.yandex.net/v1/disk/resources"
+    data_frames = []
+    dropped_total = {"count": 0, "cost": 0.0}
+    dropped_items = []
+    warnings_total = []
+
+    def list_items(path, limit=1000):
+        items = []
+        offset = 0
+        while True:
+            resp = requests.get(
+                api_url,
+                headers=headers,
+                params={"path": path, "limit": limit, "offset": offset},
+                timeout=20,
+            )
+            if resp.status_code != 200:
+                return None
+            page = resp.json().get("_embedded", {}).get("items", [])
+            if not page:
+                break
+            items.extend(page)
+            if len(page) < limit:
+                break
+            offset += limit
+        return items
+
+    def get_files_recursive(path):
+        items = list_items(path)
+        if items is None:
+            return []
+        files = [i for i in items if i.get("type") == "file"]
+        dirs = [i for i in items if i.get("type") == "dir"]
+        result = [f for f in files if str(f.get("name", "")).lower().endswith((".xlsx", ".csv"))]
+        for d in dirs:
+            result.extend(get_files_recursive(d.get("path")))
+        return result
+
+    def process_remote_file(file_meta, venue):
+        file_url = file_meta.get("file")
+        filename = file_meta.get("name", "")
+        if not file_url:
+            return
+        resp = requests.get(file_url, headers=headers, timeout=30)
+        if resp.status_code != 200:
+            warnings_total.append(f"Не удалось скачать: {filename}")
+            return
+        df, err, warns, dropped = process_single_file(BytesIO(resp.content), filename=filename)
+        warnings_total.extend(warns)
+        dropped_total["count"] += dropped.get("count", 0)
+        dropped_total["cost"] += float(dropped.get("cost", 0.0))
+        dropped_items.extend(dropped.get("items", []))
+        if err:
+            warnings_total.append(f"{filename}: {err}")
+            return
+        if df is not None and not df.empty:
+            df["Точка"] = venue
+            data_frames.append(df)
+
+    try:
+        root_items = list_items(yandex_path)
+        if root_items is None:
+            return False, "Ошибка доступа к папке на Яндекс.Диске."
+        root_files = [
+            i for i in root_items
+            if i.get("type") == "file" and str(i.get("name", "")).lower().endswith((".xlsx", ".csv"))
+        ]
+        subfolders = [i for i in root_items if i.get("type") == "dir"]
+
+        for f in root_files:
+            process_remote_file(f, "Mesto")
+        for folder in subfolders:
+            venue = folder.get("name", "Unknown")
+            for f in get_files_recursive(folder.get("path")):
+                process_remote_file(f, venue)
+
+        if not data_frames:
+            return False, "Файлы найдены, но данные не были распознаны."
+
+        full_df = pd.concat(data_frames, ignore_index=True)
+        if "Дата_Отчета" in full_df.columns:
+            full_df["Дата_Отчета"] = pd.to_datetime(full_df["Дата_Отчета"], errors="coerce")
+            full_df = full_df.dropna(subset=["Дата_Отчета"]).sort_values("Дата_Отчета")
+        full_df.to_parquet(CACHE_FILE, index=False)
+
+        dropped_df = pd.DataFrame(dropped_items)
+        if not dropped_df.empty and "Себестоимость" in dropped_df.columns:
+            dropped_df = dropped_df.sort_values(by="Себестоимость", ascending=False)
+            dropped_top = dropped_df.head(50).to_dict("records")
+        else:
+            dropped_top = dropped_items[:50]
+
+        LAST_SYNC_META["dropped_stats"] = {
+            "count": int(dropped_total["count"]),
+            "cost": float(dropped_total["cost"]),
+            "items": dropped_top,
+        }
+        LAST_SYNC_META["warnings"] = warnings_total
+
+        msg = f"Обновлено строк: {len(full_df)}. Отброшено: {dropped_total['count']}."
+        if warnings_total:
+            msg += f" Предупреждений: {len(warnings_total)}."
+        return True, msg
+    except Exception as exc:
+        LAST_SYNC_META["warnings"] = [str(exc)]
+        return False, f"Ошибка синхронизации: {exc}"

@@ -19,3 +19,8 @@ venv.bak/
 # IDEs
 .vscode/
 .idea/
+
+# OS / local runtime artifacts
+.DS_Store
+users.db
+data_cache.parquet
