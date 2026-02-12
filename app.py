@@ -134,28 +134,11 @@ with st.sidebar:
 
     # --- ADMIN AREA ---
     if st.session_state.is_admin:
-        admin_view.render_admin_panel(None)
+        with st.expander("⚙️ Администрирование", expanded=False):
+            admin_view.render_admin_panel(None)
         st.divider()
 
     # --- DATA LOADING ---
-    st.write("### 📂 Источник данных")
-    
-    # Yandex Path Config
-    if st.session_state.edit_yandex_path:
-         new_path = st.text_input("Путь на Яндекс.Диске", value=st.session_state.yandex_path)
-         if st.button("Сохранить"):
-             st.session_state.yandex_path = new_path
-             st.session_state.edit_yandex_path = False
-             st.rerun()
-    else:
-        c_path1, c_path2 = st.columns([5, 1])
-        c_path1.caption(f"📁 {st.session_state.yandex_path}")
-        if c_path2.button("✏️", help="Изменить папку"):
-            st.session_state.edit_yandex_path = True
-            st.rerun()
-
-    source_type = st.radio("Откуда берем?", ["☁️ Яндекс.Диск", "📂 Локальная папка"])
-    
     tg_token = (
         auth.get_secret("TG_BOT_TOKEN")
         or auth.get_secret("TELEGRAM_TOKEN")
@@ -168,31 +151,48 @@ with st.sidebar:
         or os.getenv("TG_CHAT_ID")
         or os.getenv("TELEGRAM_CHAT_ID")
     )
-    
-    if source_type == "☁️ Яндекс.Диск":
-        yd_token = auth.get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
-        if not yd_token:
-            st.error("Нет токена Yandex Disk!")
+
+    with st.expander("📂 Источник данных", expanded=False):
+        # Yandex Path Config
+        if st.session_state.edit_yandex_path:
+             new_path = st.text_input("Путь на Яндекс.Диске", value=st.session_state.yandex_path)
+             if st.button("Сохранить"):
+                 st.session_state.yandex_path = new_path
+                 st.session_state.edit_yandex_path = False
+                 st.rerun()
         else:
-            if st.button("🔄 Скачать и Обновить", type="primary", use_container_width=True):
-                ui.show_loading_overlay("Связываюсь с облаком...")
-                success, msg = data_engine.download_and_process_yandex(yd_token, st.session_state.yandex_path)
-                if success:
-                    st.success("Данные обновлены!")
-                    st.session_state.dropped_stats = data_engine.get_last_sync_meta().get(
-                        "dropped_stats",
-                        {"count": 0, "cost": 0.0, "items": []},
-                    )
-                    st.session_state.df_full = None
-                    st.session_state.df_version += 1
-                    st.rerun()
-                else:
-                    st.error(msg)
-    
-    elif source_type == "📂 Локальная папка":
-        if st.button("🔄 Загрузить из кэша"):
-             st.session_state.df_full = None
-             st.rerun()
+            c_path1, c_path2 = st.columns([5, 1])
+            c_path1.caption(f"📁 {st.session_state.yandex_path}")
+            if c_path2.button("✏️", help="Изменить папку"):
+                st.session_state.edit_yandex_path = True
+                st.rerun()
+
+        source_type = st.radio("Откуда берем?", ["☁️ Яндекс.Диск", "📂 Локальная папка"])
+
+        if source_type == "☁️ Яндекс.Диск":
+            yd_token = auth.get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
+            if not yd_token:
+                st.error("Нет токена Yandex Disk!")
+            else:
+                if st.button("🔄 Скачать и Обновить", type="primary", use_container_width=True):
+                    ui.show_loading_overlay("Связываюсь с облаком...")
+                    success, msg = data_engine.download_and_process_yandex(yd_token, st.session_state.yandex_path)
+                    if success:
+                        st.success("Данные обновлены!")
+                        st.session_state.dropped_stats = data_engine.get_last_sync_meta().get(
+                            "dropped_stats",
+                            {"count": 0, "cost": 0.0, "items": []},
+                        )
+                        st.session_state.df_full = None
+                        st.session_state.df_version += 1
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
+        elif source_type == "📂 Локальная папка":
+            if st.button("🔄 Загрузить из кэша"):
+                 st.session_state.df_full = None
+                 st.rerun()
 
     # --- AUTO-LOAD ---
     if st.session_state.df_full is None:
@@ -205,77 +205,78 @@ with st.sidebar:
     
     # --- FILTERS ---
     if st.session_state.df_full is not None:
-        df_full = st.session_state.df_full.copy()
-        
-        # 1. Venue Filter
-        venue_col = "Точка" if "Точка" in df_full.columns else ("Venue" if "Venue" in df_full.columns else None)
-        if venue_col:
-            venues = sorted(df_full[venue_col].dropna().astype(str).unique())
-            selected_venue = st.selectbox("📍 Точка:", ["Все"] + venues, index=0)
-            if selected_venue != "Все":
-                df_full = df_full[df_full[venue_col].astype(str) == selected_venue]
-        else:
-            st.info("Колонка заведения не найдена, фильтр по точкам отключен.")
+        with st.expander("🗓️ Фильтры периода", expanded=False):
+            df_full = st.session_state.df_full.copy()
             
-        # 2. Date Filter
-        min_date = df_full['Дата_Отчета'].min().date()
-        max_date = df_full['Дата_Отчета'].max().date()
-        
-        period_mode = st.radio("Период:", ["📅 Месяц (Сравнение)", "📆 Диапазон"], horizontal=True)
-        
-        df_current = pd.DataFrame()
-        df_prev = pd.DataFrame()
-        target_date = datetime.now()
-        period_title_base = ""
-        prev_label = ""
-        
-        if period_mode == "📅 Месяц (Сравнение)":
-             df_full['YearMonth'] = df_full['Дата_Отчета'].dt.to_period('M')
-             available_ym = sorted(df_full['YearMonth'].unique(), reverse=True)
-             
-             if not available_ym:
-                 st.warning("Нет данных")
-             else:
-                 selected_ym = st.selectbox("Месяц:", available_ym)
-                 scope_mode = st.radio("Охват:", ["Весь месяц", "По конкретный день"], horizontal=True, label_visibility="collapsed")
+            # 1. Venue Filter
+            venue_col = "Точка" if "Точка" in df_full.columns else ("Venue" if "Venue" in df_full.columns else None)
+            if venue_col:
+                venues = sorted(df_full[venue_col].dropna().astype(str).unique())
+                selected_venue = st.selectbox("📍 Точка:", ["Все"] + venues, index=0)
+                if selected_venue != "Все":
+                    df_full = df_full[df_full[venue_col].astype(str) == selected_venue]
+            else:
+                st.info("Колонка заведения не найдена, фильтр по точкам отключен.")
+                
+            # 2. Date Filter
+            min_date = df_full['Дата_Отчета'].min().date()
+            max_date = df_full['Дата_Отчета'].max().date()
+            
+            period_mode = st.radio("Период:", ["📅 Месяц (Сравнение)", "📆 Диапазон"], horizontal=True)
+            
+            df_current = pd.DataFrame()
+            df_prev = pd.DataFrame()
+            target_date = datetime.now()
+            period_title_base = ""
+            prev_label = ""
+            
+            if period_mode == "📅 Месяц (Сравнение)":
+                 df_full['YearMonth'] = df_full['Дата_Отчета'].dt.to_period('M')
+                 available_ym = sorted(df_full['YearMonth'].unique(), reverse=True)
                  
-                 start_cur = selected_ym.start_time
-                 end_cur = selected_ym.end_time
-                 
-                 if scope_mode == "По конкретный день":
-                     max_d = (selected_ym.to_timestamp(how='end')).day
-                     selected_day = st.slider("День:", 1, max_d, min(datetime.now().day, max_d))
-                     end_cur = start_cur + timedelta(days=selected_day-1)
-                     end_cur = end_cur.replace(hour=23, minute=59, second=59)
+                 if not available_ym:
+                     st.warning("Нет данных")
+                 else:
+                     selected_ym = st.selectbox("Месяц:", available_ym)
+                     scope_mode = st.radio("Охват:", ["Весь месяц", "По конкретный день"], horizontal=True, label_visibility="collapsed")
+                     
+                     start_cur = selected_ym.start_time
+                     end_cur = selected_ym.end_time
+                     
+                     if scope_mode == "По конкретный день":
+                         max_d = (selected_ym.to_timestamp(how='end')).day
+                         selected_day = st.slider("День:", 1, max_d, min(datetime.now().day, max_d))
+                         end_cur = start_cur + timedelta(days=selected_day-1)
+                         end_cur = end_cur.replace(hour=23, minute=59, second=59)
 
-                 df_current = df_full[(df_full['Дата_Отчета'] >= start_cur) & (df_full['Дата_Отчета'] <= end_cur)]
-                 period_title_base = f"{selected_ym.strftime('%b %Y')} ({scope_mode})"
-                 target_date = end_cur
-                 
-                 compare_mode = st.selectbox("Сравнить с:", ["Предыдущий месяц", "Год назад", "Нет"], index=1)
-                 
-                 if compare_mode == "Предыдущий месяц":
-                     prev_ym = selected_ym - 1
-                     start_prev = prev_ym.start_time
-                     end_prev = start_prev + (end_cur - start_cur)
-                     df_prev = df_full[(df_full['Дата_Отчета'] >= start_prev) & (df_full['Дата_Отчета'] <= end_prev)]
-                     prev_label = prev_ym.strftime("%b %Y")
-                 elif compare_mode == "Год назад":
-                     prev_ym = selected_ym - 12
-                     start_prev = prev_ym.start_time
-                     end_prev = start_prev + (end_cur - start_cur)
-                     df_prev = df_full[(df_full['Дата_Отчета'] >= start_prev) & (df_full['Дата_Отчета'] <= end_prev)]
-                     prev_label = prev_ym.strftime("%b %Y")
+                     df_current = df_full[(df_full['Дата_Отчета'] >= start_cur) & (df_full['Дата_Отчета'] <= end_cur)]
+                     period_title_base = f"{selected_ym.strftime('%b %Y')} ({scope_mode})"
+                     target_date = end_cur
+                     
+                     compare_mode = st.selectbox("Сравнить с:", ["Предыдущий месяц", "Год назад", "Нет"], index=1)
+                     
+                     if compare_mode == "Предыдущий месяц":
+                         prev_ym = selected_ym - 1
+                         start_prev = prev_ym.start_time
+                         end_prev = start_prev + (end_cur - start_cur)
+                         df_prev = df_full[(df_full['Дата_Отчета'] >= start_prev) & (df_full['Дата_Отчета'] <= end_prev)]
+                         prev_label = prev_ym.strftime("%b %Y")
+                     elif compare_mode == "Год назад":
+                         prev_ym = selected_ym - 12
+                         start_prev = prev_ym.start_time
+                         end_prev = start_prev + (end_cur - start_cur)
+                         df_prev = df_full[(df_full['Дата_Отчета'] >= start_prev) & (df_full['Дата_Отчета'] <= end_prev)]
+                         prev_label = prev_ym.strftime("%b %Y")
 
-        else:
-            d_range = st.date_input("Диапазон:", value=(min_date, max_date), min_value=min_date, max_value=max_date)
-            if isinstance(d_range, tuple) and len(d_range) == 2:
-                s, e = d_range
-                s = pd.to_datetime(s)
-                e = pd.to_datetime(e) + timedelta(hours=23, minutes=59)
-                df_current = df_full[(df_full['Дата_Отчета'] >= s) & (df_full['Дата_Отчета'] <= e)]
-                period_title_base = f"{s.date()} - {e.date()}"
-                target_date = e
+            else:
+                d_range = st.date_input("Диапазон:", value=(min_date, max_date), min_value=min_date, max_value=max_date)
+                if isinstance(d_range, tuple) and len(d_range) == 2:
+                    s, e = d_range
+                    s = pd.to_datetime(s)
+                    e = pd.to_datetime(e) + timedelta(hours=23, minutes=59)
+                    df_current = df_full[(df_full['Дата_Отчета'] >= s) & (df_full['Дата_Отчета'] <= e)]
+                    period_title_base = f"{s.date()} - {e.date()}"
+                    target_date = e
         
         # --- RENDER EXPORT SIDEBAR ---
         reports_view.render_sidebar_export(df_current, df_full, tg_token, tg_chat, pd.to_datetime(target_date))
