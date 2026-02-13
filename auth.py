@@ -40,6 +40,16 @@ def init_auth_db():
                 created_at TEXT NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                token TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                expires_at TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                ua_hash TEXT
+            )
+        """)
         conn.commit()
 
 def _hash_password(password, salt_hex):
@@ -132,53 +142,70 @@ def get_user_by_id(user_id):
 
 def create_runtime_session(user_id, user_agent=None):
     token = secrets.token_urlsafe(32)
+    now_iso = datetime.utcnow().isoformat()
+    expires_iso = (datetime.utcnow() + timedelta(days=SESSION_TTL_DAYS)).isoformat()
+    ua_hash = _hash_user_agent(user_agent)
+    with _db_conn() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO sessions (token, user_id, expires_at, created_at, last_seen_at, ua_hash)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (token, user_id, expires_iso, now_iso, now_iso, ua_hash),
+        )
+        conn.commit()
+
+    # Keep in-memory mirror for quick access inside same process.
     sessions = get_runtime_sessions()
-    sessions[token] = {
-        "user_id": user_id,
-        "expires_at": (datetime.utcnow() + timedelta(days=SESSION_TTL_DAYS)).isoformat(),
-        "ua_hash": _hash_user_agent(user_agent),
-    }
+    sessions[token] = {"user_id": user_id, "expires_at": expires_iso, "ua_hash": ua_hash}
     return token
 
 def resolve_runtime_session(token, user_agent=None):
-    sessions = get_runtime_sessions()
-    payload = sessions.get(token)
-    if payload is None:
-        return None
+    now = datetime.utcnow()
+    with _db_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT user_id, expires_at
+            FROM sessions
+            WHERE token = ?
+            """,
+            (token,),
+        ).fetchone()
 
-    # Backward compatibility for older in-memory sessions token -> user_id
-    if isinstance(payload, int):
-        return payload
-
-    expires_raw = payload.get("expires_at")
-    user_id = payload.get("user_id")
-    if not expires_raw or user_id is None:
-        sessions.pop(token, None)
-        return None
-
-    try:
-        expires_at = datetime.fromisoformat(expires_raw)
-    except ValueError:
-        sessions.pop(token, None)
-        return None
-
-    if datetime.utcnow() > expires_at:
-        sessions.pop(token, None)
-        return None
-
-    expected_ua_hash = payload.get("ua_hash")
-    if expected_ua_hash:
-        actual_ua_hash = _hash_user_agent(user_agent)
-        if not actual_ua_hash or not hmac.compare_digest(expected_ua_hash, actual_ua_hash):
-            sessions.pop(token, None)
+        if not row:
             return None
 
+        user_id, expires_raw = row
+        try:
+            expires_at = datetime.fromisoformat(expires_raw)
+        except ValueError:
+            conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+            conn.commit()
+            return None
+
+        if now > expires_at:
+            conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+            conn.commit()
+            return None
+
+        conn.execute(
+            "UPDATE sessions SET last_seen_at = ? WHERE token = ?",
+            (now.isoformat(), token),
+        )
+        conn.commit()
+
+    # Backward compatibility / in-memory mirror.
+    sessions = get_runtime_sessions()
+    sessions[token] = {"user_id": user_id, "expires_at": expires_raw, "ua_hash": _hash_user_agent(user_agent)}
     return user_id
 
 def drop_runtime_session(token):
+    with _db_conn() as conn:
+        conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+        conn.commit()
+
     sessions = get_runtime_sessions()
-    if token in sessions:
-        del sessions[token]
+    sessions.pop(token, None)
 
 def update_user_status(user_id, status):
     with _db_conn() as conn:
