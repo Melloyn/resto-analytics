@@ -222,7 +222,12 @@ with st.sidebar:
             min_date = df_full['Дата_Отчета'].min().date()
             max_date = df_full['Дата_Отчета'].max().date()
             
-            period_mode = st.radio("Период:", ["📅 Месяц (Сравнение)", "📆 Диапазон"], horizontal=True)
+            period_mode = st.radio(
+                "Период:",
+                ["📌 Последний загруженный день", "📅 Месяц (Сравнение)", "📆 Диапазон"],
+                horizontal=True,
+                index=0
+            )
             
             df_current = pd.DataFrame()
             df_prev = pd.DataFrame()
@@ -230,7 +235,16 @@ with st.sidebar:
             period_title_base = ""
             prev_label = ""
             
-            if period_mode == "📅 Месяц (Сравнение)":
+            if period_mode == "📌 Последний загруженный день":
+                 last_day = pd.to_datetime(df_full['Дата_Отчета']).max().normalize()
+                 day_start = last_day
+                 day_end = last_day + timedelta(hours=23, minutes=59, seconds=59)
+                 df_current = df_full[(df_full['Дата_Отчета'] >= day_start) & (df_full['Дата_Отчета'] <= day_end)]
+                 df_prev = pd.DataFrame()
+                 period_title_base = f"{last_day.strftime('%d.%m.%Y')} (последний загруженный день)"
+                 target_date = day_end
+
+            elif period_mode == "📅 Месяц (Сравнение)":
                  df_full['YearMonth'] = df_full['Дата_Отчета'].dt.to_period('M')
                  available_ym = sorted(df_full['YearMonth'].unique(), reverse=True)
                  
