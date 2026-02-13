@@ -577,7 +577,7 @@ def render_weekdays(df_current, df_prev, current_label="", prev_label=""):
         fig_daily.update_layout(title='Дневная динамика внутри периода', xaxis_title='Номер дня периода')
         st.plotly_chart(ui.update_chart_layout(fig_daily), use_container_width=True)
 
-def render_procurement(df_sales, df_full, period_days):
+def render_procurement_v2(df_sales, df_full, period_days):
     st.subheader("📦 Планирование Закупок")
     
     recipes_map = data_engine.get_recipes_map()

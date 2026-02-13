@@ -350,7 +350,7 @@ if not df_current.empty:
             days = (d_max - d_min).days + 1
         else:
             days = 1
-        reports_view.render_procurement(df_current, df_full, days)
+        reports_view.render_procurement_v2(df_current, df_full, days)
 
         
     elif selected_tab == "🔮 Симулятор":
