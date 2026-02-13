@@ -340,9 +340,18 @@ if not df_current.empty:
     elif selected_tab == "🗓 Дни недели":
         reports_view.render_weekdays(df_current, df_prev, period_title_base, prev_label)
             
+
     elif selected_tab == "📦 Закупки":
-        plan = reports_view.compute_purchase_plan(df_full, 3, 10)
-        st.dataframe(plan, use_container_width=True)
+        # New Procurement Logic
+        # We need period_days. Calculate from period_title_base or df_current dates
+        if not df_current.empty:
+            d_min = df_current['Дата_Отчета'].min()
+            d_max = df_current['Дата_Отчета'].max()
+            days = (d_max - d_min).days + 1
+        else:
+            days = 1
+        reports_view.render_procurement(df_current, df_full, days)
+
         
     elif selected_tab == "🔮 Симулятор":
         reports_view.render_simulator(df_current, df_full)

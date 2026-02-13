@@ -576,3 +576,319 @@ def render_weekdays(df_current, df_prev, current_label="", prev_label=""):
 
         fig_daily.update_layout(title='Дневная динамика внутри периода', xaxis_title='Номер дня периода')
         st.plotly_chart(ui.update_chart_layout(fig_daily), use_container_width=True)
+
+def render_procurement(df_sales, df_full, period_days):
+    st.subheader("📦 Планирование Закупок")
+    
+    recipes_map = data_engine.get_recipes_map()
+    stock_df = data_engine.get_stock_data()
+    
+    if not recipes_map:
+        st.warning("⚠️ Не найдены технологические карты (TTK). Загрузите их в папку 'TechnologicalMaps'.")
+        return
+        
+    if stock_df is None or stock_df.empty:
+        st.warning("⚠️ Не найдены остатки (Оборотка). Загрузите файлы в папку 'ProductTurnover'.")
+        return
+
+    # --- UI CONTROLS ---
+    c_method, c_days = st.columns([2, 1])
+    with c_method:
+        forecast_method = st.radio(
+            "Метод прогноза:",
+            ["📊 Среднее по выбранному периоду", "🧠 Умный прогноз (Тренд + Прошлый год)"],
+            horizontal=True
+        )
+    with c_days:
+         target_days = st.slider("На сколько дней закупаем?", 1, 30, 7)
+
+    days_in_period = max(1, period_days)
+
+    # --- HELPER: Get Consumption DataFrame ---
+    def get_consumption(df_source, days_count):
+        if df_source.empty: return pd.DataFrame(columns=["ingredient", "unit", "qty_needed"])
+        
+        # Group sales
+        s_grouped = df_source.groupby("Блюдо")["Количество"].sum().reset_index()
+        s_grouped["norm_dish"] = s_grouped["Блюдо"].apply(lambda x: str(x).lower().strip())
+        
+        cons_data = []
+        for _, row in s_grouped.iterrows():
+            name = row["norm_dish"]
+            qty = row["Количество"]
+            ingredients = recipes_map.get(name)
+            if ingredients:
+                for ing in ingredients:
+                    cons_data.append({
+                        "ingredient": ing["ingredient"],
+                        "unit": ing["unit"],
+                        "qty_needed": ing["qty_per_dish"] * qty
+                    })
+        
+        if not cons_data: return pd.DataFrame(columns=["ingredient", "unit", "qty_needed"])
+        
+        df_c = pd.DataFrame(cons_data)
+        return df_c.groupby(["ingredient", "unit"])["qty_needed"].sum().reset_index()
+
+    # --- 1. CURRENT PERIOD CONSUMPTION ---
+    # This is always calculated to show "Current Usage"
+    df_cons_current = get_consumption(df_sales, days_in_period)
+    df_cons_current["avg_current"] = df_cons_current["qty_needed"] / days_in_period
+
+    # --- 2. SMART FORECAST (WEEKDAY AWARE) ---
+    df_forecast = pd.DataFrame()
+    
+    if "Умный" in forecast_method:
+        # 1. Determine Target Dates (Tomorrow -> Tomorrow + N)
+        # We assume procurement is for FUTURE.
+        # Let's say we start "Tomorrow" relative to the last report date?
+        # Or just use the next N dates from "Today" (Realtime)?
+        # Since reports might be old, let's use: LastReportDate + 1 -> + N
+        last_report_date = df_full['Дата_Отчета'].max()
+        target_dates = [last_report_date + timedelta(days=i) for i in range(1, target_days + 1)]
+        target_weekdays = [d.weekday() for d in target_dates] # 0=Mon, 6=Sun
+        
+        # 2. Helper to get Weekday Profiles (Sales Based) with RECURSION
+        def get_weekday_profile_sales(df_src):
+            if df_src.empty: return {}
+            df_src = df_src.copy()
+            df_src['Weekday'] = df_src['Дата_Отчета'].dt.weekday
+            daily_sales = df_src.groupby(['Дата_Отчета', 'Блюдо'])['Количество'].sum().reset_index()
+            daily_sales['Weekday'] = daily_sales['Дата_Отчета'].dt.weekday
+            dish_weekday_avg = daily_sales.groupby(['Блюдо', 'Weekday'])['Количество'].mean().reset_index()
+            dish_weekday_avg['norm_dish'] = dish_weekday_avg['Блюдо'].apply(lambda x: str(x).lower().strip())
+            
+            profile = {}
+            
+            # Recursive helper
+            def resolve_ingredients(name, qty_needed, weekday, profile_dict, depth=0):
+                if depth > 10: return # Avoid infinite loops
+                
+                # Check directly in recipes
+                ings = recipes_map.get(name)
+                
+                if ings:
+                    # It's a compound dish/p-f -> Resolve children
+                    for ing in ings:
+                        i_name = ing['ingredient']
+                        # Recursive call: sub-ingredient needed = qty_needed * qty_per_parent
+                        sub_qty = qty_needed * ing['qty_per_dish']
+                        resolve_ingredients(i_name, sub_qty, weekday, profile_dict, depth+1)
+                else:
+                    # It's a raw ingredient (or we don't have a recipe for it) -> Add to profile
+                    if name not in profile_dict: profile_dict[name] = {w: 0.0 for w in range(7)}
+                    profile_dict[name][weekday] += qty_needed
+            
+            for _, row in dish_weekday_avg.iterrows():
+                name = row['norm_dish']
+                avg_qty = row['Количество']
+                wd = row['Weekday']
+                
+                # Start resolution
+                resolve_ingredients(name, avg_qty, wd, profile)
+                
+            return profile
+
+        # 3. Helper to get Weekday Profiles (History Based)
+        # For History (1C Turnover), we likely see BOTH Raw Ingredients AND Semi-finished.
+        # If we see Raw Ingredients consumption, we don't need to explode Semi-finished.
+        # We just need to Hide Semi-finished from the Buy List if they are produced internally.
+        def get_weekday_profile_history(df_src):
+            if df_src.empty: return {}
+            # df_src columns: date, ingredient, qty_out
+            df_src = df_src.copy()
+            df_src['weekday'] = df_src['date'].dt.weekday
+            
+            # Mean consumption per weekday
+            grp = df_src.groupby(['ingredient', 'weekday'])['qty_out'].mean()
+            
+            profile = {}
+            for (ing, wd), qty in grp.items():
+                if ing in recipes_map:
+                    # This is a Semi-Finished product / Dish (has a recipe).
+                    # We assume its raw ingredients are ALSO tracked in 1C Turnover (outcome).
+                    # So we ignore this item for PROCUREMENT purposes.
+                    continue
+                
+                if ing not in profile: profile[ing] = {w: 0.0 for w in range(7)}
+                profile[ing][wd] = qty
+            return profile
+
+        # SWITCH: Use History or Sales?
+        df_history = data_engine.get_turnover_history()
+        use_history = df_history is not None and not df_history.empty
+        
+        profile_trend = {}
+        profile_ly = {}
+        
+        if use_history:
+            # --- HISTORY MODE ---
+            # Ensure dates are datetime
+            if not pd.api.types.is_datetime64_any_dtype(df_history['date']):
+                df_history['date'] = pd.to_datetime(df_history['date'])
+                
+            # Trend
+            trend_start = last_report_date - timedelta(days=28)
+            df_h_trend = df_history[df_history['date'] >= trend_start]
+            profile_trend = get_weekday_profile_history(df_h_trend)
+            
+            # Seasonal
+            ly_center = last_report_date - timedelta(days=365)
+            ly_start = ly_center - timedelta(days=14)
+            ly_end = ly_center + timedelta(days=14)
+            df_h_ly = df_history[(df_history['date'] >= ly_start) & (df_history['date'] <= ly_end)]
+            profile_ly = get_weekday_profile_history(df_h_ly)
+        else:
+            # --- SALES MODE (Legacy) ---
+            # Trend
+            trend_start = last_report_date - timedelta(days=28)
+            df_trend = df_full[df_full['Дата_Отчета'] >= trend_start]
+            profile_trend = get_weekday_profile_sales(df_trend)
+            
+            # Seasonal
+            ly_center = last_report_date - timedelta(days=365)
+            ly_start = ly_center - timedelta(days=14)
+            ly_end = ly_center + timedelta(days=14)
+            df_ly = df_full[(df_full['Дата_Отчета'] >= ly_start) & (df_full['Дата_Отчета'] <= ly_end)]
+            profile_ly = get_weekday_profile_sales(df_ly)
+        
+        # 4. Calculate Demand for Target Dates
+        final_forecast = []
+        
+        # Get all ingredients
+        all_ings = set(profile_trend.keys()) | set(profile_ly.keys())
+        
+        for ing in all_ings:
+            p_trend = profile_trend.get(ing, {w: 0.0 for w in range(7)})
+            p_ly = profile_ly.get(ing, {w: 0.0 for w in range(7)})
+            
+            total_need = 0.0
+            sum_trend = 0.0
+            sum_ly = 0.0
+            
+            for wd in target_weekdays:
+                # Forecast for this specific day = (Trend[wd] + LY[wd]) / 2
+                val_t = p_trend[wd]
+                val_l = p_ly[wd]
+                
+                sum_trend += val_t
+                sum_ly += val_l
+                
+                day_val = 0.0
+                if val_t > 0 and val_l > 0: day_val = (val_t + val_l) / 2
+                elif val_t > 0: day_val = val_t
+                elif val_l > 0: day_val = val_l
+                
+                total_need += day_val
+                
+            # Avg metrics for display
+            avg_daily_trend = sum_trend / target_days
+            avg_daily_ly = sum_ly / target_days
+            daily_forecast = total_need / target_days
+            
+            final_forecast.append({
+                "ingredient": ing,
+                "daily_forecast": daily_forecast, # This is technically "Avg Need for Target Period"
+                "avg_trend": avg_daily_trend,
+                "avg_ly": avg_daily_ly
+            })
+            
+        df_forecast = pd.DataFrame(final_forecast)
+        if df_forecast.empty:
+            df_forecast = pd.DataFrame(columns=["ingredient", "daily_forecast", "avg_trend", "avg_ly"])
+
+    else:
+        # Simple Mode: Forecast = Current Period Avg
+        df_forecast = df_cons_current[["ingredient", "avg_current"]].rename(columns={"avg_current": "daily_forecast"})
+        df_forecast["avg_trend"] = 0.0
+        df_forecast["avg_ly"] = 0.0
+
+    # 3. Merge with Stock
+    # We use df_forecast as the base for "Needs", but we also want to show current period usage for reference?
+    # Actually, the procurement should be based on the Forecast.
+    
+    # Let's merge Forecast with Stock
+    df_final = pd.merge(df_forecast, stock_df, on="ingredient", how="outer")
+    
+    # Fill NaNs
+    df_final["daily_forecast"] = df_final["daily_forecast"].fillna(0)
+    df_final["stock_qty"] = df_final["stock_qty"].fillna(0)
+    df_final["avg_trend"] = df_final.get("avg_trend", pd.Series(0)).fillna(0)
+    df_final["avg_ly"] = df_final.get("avg_ly", pd.Series(0)).fillna(0)
+    
+    # Recover Unit (it might be lost in merges if not careful)
+    # We can get unit from recipes or stock or consumption df
+    # Let's try to fetch it from df_cons_current or stock
+    
+    # Helper to map units
+    # Create valid unit map from all sources
+    all_units = {}
+    if not df_cons_current.empty: 
+        all_units.update(dict(zip(df_cons_current.ingredient, df_cons_current.unit)))
+    
+    if "unit" in stock_df.columns:
+        all_units.update(dict(zip(stock_df.ingredient, stock_df.unit))) 
+    
+    df_final["unit"] = df_final["ingredient"].map(all_units).fillna("")
+
+    # 4. Analyze
+    
+    # Days Left = Stock / Daily Forecast
+    df_final["days_left"] = df_final.apply(
+        lambda x: x["stock_qty"] / x["daily_forecast"] if x["daily_forecast"] > 0.001 else 999, 
+        axis=1
+    )
+    
+    df_final["to_buy"] = (df_final["daily_forecast"] * target_days) - df_final["stock_qty"]
+    df_final["to_buy"] = df_final["to_buy"].apply(lambda x: max(0.0, x))
+    
+    # Filter: Show only relevant items
+    df_view = df_final[(df_final["daily_forecast"] > 0) | (df_final["stock_qty"] > 0)].copy()
+    
+    # Sort
+    df_view = df_view.sort_values("days_left", ascending=True)
+    
+    # Metrics Header
+    st.info(f"📊 Загружено рецептов: {len(recipes_map)}. Позиций на складе: {len(stock_df)}")
+
+    # Rename & Columns
+    cols_to_show = ["ingredient", "unit", "stock_qty", "days_left", "to_buy"]
+    rename_map = {
+        "ingredient": "Ингредиент",
+        "unit": "Ед.",
+        "stock_qty": "Остаток",
+        "days_left": "Хватит (дней)",
+        "to_buy": "Закупить"
+    }
+
+    if "Умный" in forecast_method:
+        cols_to_show = cols_to_show[:2] + ["avg_trend", "avg_ly", "daily_forecast"] + cols_to_show[2:]
+        rename_map.update({
+            "avg_trend": "Тренд (21д)",
+            "avg_ly": "Прошлый год",
+            "daily_forecast": "Прогноз/день"
+        })
+    else:
+        cols_to_show.insert(2, "daily_forecast")
+        rename_map["daily_forecast"] = "Ср. расход/день"
+        
+    df_display = df_view[cols_to_show].rename(columns=rename_map)
+    
+    # Formatting
+    format_dict = {
+        "Остаток": "{:.2f}",
+        "Хватит (дней)": "{:.0f}",
+        "Закупить": "{:.2f}",
+        "Ср. расход/день": "{:.2f}",
+        "Прогноз/день": "{:.2f}",
+        "Тренд (21д)": "{:.2f}",
+        "Прошлый год": "{:.2f}"
+    }
+
+    st.dataframe(
+        df_display.style.format(format_dict).apply(
+            lambda x: ["background-color: #ffcdd2" if v < 3 else ("background-color: #fff9c4" if v < 7 else "") for v in x], 
+            subset=["Хватит (дней)"]
+        )
+    )
+

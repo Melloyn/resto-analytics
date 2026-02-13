@@ -415,6 +415,22 @@ def get_last_sync_meta():
     return LAST_SYNC_META
 
 
+from services import parsing_service
+
+# --- IN-MEMORY STORAGE FOR NEW DATA TYPES (Reset on Reload) ---
+_RECIPES_DB = {} # dish_name -> [ingredients]
+_STOCK_DF = None # DataFrame
+_TURNOVER_HISTORY_DF = None # History DataFrame
+
+def get_recipes_map():
+    return _RECIPES_DB
+
+def get_stock_data():
+    return _STOCK_DF
+
+def get_turnover_history():
+    return _TURNOVER_HISTORY_DF
+
 def download_and_process_yandex(yandex_token, yandex_path="RestoAnalytic"):
     if not yandex_token:
         return False, "Не задан токен Яндекс.Диска."
@@ -425,6 +441,12 @@ def download_and_process_yandex(yandex_token, yandex_path="RestoAnalytic"):
     dropped_total = {"count": 0, "cost": 0.0}
     dropped_items = []
     warnings_total = []
+    
+    # New Data Containers
+    global _RECIPES_DB, _STOCK_DF, _TURNOVER_HISTORY_DF
+    recipes_list = []
+    stock_parts = []
+    turnover_history_parts = []
 
     def list_items(path, limit=1000):
         items = []
@@ -463,47 +485,124 @@ def download_and_process_yandex(yandex_token, yandex_path="RestoAnalytic"):
         filename = file_meta.get("name", "")
         if not file_url:
             return
+        
+        # Check file type based on path or name
+        path = str(file_meta.get("path", "")) # e.g. "disk:/RestoAnalytic/..."
+        
         resp = requests.get(file_url, headers=headers, timeout=30)
         if resp.status_code != 200:
             warnings_total.append(f"Не удалось скачать: {filename}")
             return
-        df, err, warns, dropped = process_single_file(BytesIO(resp.content), filename=filename)
-        warnings_total.extend(warns)
-        dropped_total["count"] += dropped.get("count", 0)
-        dropped_total["cost"] += float(dropped.get("cost", 0.0))
-        dropped_items.extend(dropped.get("items", []))
-        if err:
-            warnings_total.append(f"{filename}: {err}")
+            
+        content = BytesIO(resp.content)
+        
+        # 1. Technological Maps
+        if "TechnologicalMaps" in path:
+            res_list, err = parsing_service.parse_ttk(content, filename)
+            if err:
+                warnings_total.append(f"TTK Error {filename}: {err}")
+            elif res_list:
+                recipes_list.extend(res_list)
             return
-        if df is not None and not df.empty:
-            df["Точка"] = venue
-            data_frames.append(df)
+
+        # 2. Product Turnover
+        # 2. Product Turnover
+        if "ProductTurnover" in path:
+            df_turn, df_hist, err = parsing_service.parse_turnover(content, filename)
+            if err:
+                warnings_total.append(f"Turnover Error {filename}: {err}")
+            else:
+                if df_turn is not None:
+                    stock_parts.append(df_turn)
+                if df_hist is not None and not df_hist.empty:
+                    turnover_history_parts.append(df_hist)
+            return
+
+        # 3. Sales Analysis (Default or Explicit)
+        # Process ONLY if it is SalesAnalysis or root file (legacy)
+        # Avoid processing other known folders if they slip through
+        if "TechnologicalMaps" not in path and "ProductTurnover" not in path:
+            # Explicit check for SalesAnalysis folder or logic for root files
+            # For now, relying on the fact we are filtering in the calling loop or here
+            # We enforce that we only process as sales if NOT the other types
+            
+            df, err, warns, dropped = process_single_file(content, filename=filename)
+            warnings_total.extend(warns)
+            dropped_total["count"] += dropped.get("count", 0)
+            dropped_total["cost"] += float(dropped.get("cost", 0.0))
+            dropped_items.extend(dropped.get("items", []))
+            if err:
+                warnings_total.append(f"{filename}: {err}")
+                return
+            if df is not None and not df.empty:
+                df["Точка"] = venue
+                data_frames.append(df)
 
     try:
         root_items = list_items(yandex_path)
         if root_items is None:
             return False, "Ошибка доступа к папке на Яндекс.Диске."
+        
+        # Files in root
         root_files = [
             i for i in root_items
             if i.get("type") == "file" and str(i.get("name", "")).lower().endswith((".xlsx", ".csv"))
         ]
+        
+        # Folders
         subfolders = [i for i in root_items if i.get("type") == "dir"]
 
+        # Process Root Files (Assume Sales Data for backward compatibility)
         for f in root_files:
             process_remote_file(f, "Mesto")
+            
+        # Process Folders
         for folder in subfolders:
             venue = folder.get("name", "Unknown")
+            # Note: We need to handle the space in " TechnologicalMaps" if it exists on disk
+            # get_files_recursive uses the 'path' property which is URL encoded or exact path
+            # so it should work regardless of local name display
+            
             for f in get_files_recursive(folder.get("path")):
+                # Filter Logic is now moved inside process_remote_file for cleaner separation
                 process_remote_file(f, venue)
 
-        if not data_frames:
-            return False, "Файлы найдены, но данные не были распознаны."
+        # AGGREGATE RESULTS
+        
+        # 1. Sales
+        if not data_frames and not recipes_list and not stock_parts:
+             return False, "Файлы найдены, но данные не были распознаны."
 
-        full_df = pd.concat(data_frames, ignore_index=True)
-        if "Дата_Отчета" in full_df.columns:
-            full_df["Дата_Отчета"] = pd.to_datetime(full_df["Дата_Отчета"], errors="coerce")
-            full_df = full_df.dropna(subset=["Дата_Отчета"]).sort_values("Дата_Отчета")
-        full_df.to_parquet(CACHE_FILE, index=False)
+        if data_frames:
+            full_df = pd.concat(data_frames, ignore_index=True)
+            if "Дата_Отчета" in full_df.columns:
+                full_df["Дата_Отчета"] = pd.to_datetime(full_df["Дата_Отчета"], errors="coerce")
+                full_df = full_df.dropna(subset=["Дата_Отчета"]).sort_values("Дата_Отчета")
+            full_df.to_parquet(CACHE_FILE, index=False)
+        else:
+            # If no sales data but we have other data, we strictly shouldn't fail broadly
+            # But specific to existing logic, cache file might be needed
+            pass
+
+        # 2. Recipes
+        _RECIPES_DB = {}
+        for r in recipes_list:
+            _RECIPES_DB[r['dish_name']] = r['ingredients']
+            
+        # 3. Stock
+        if stock_parts:
+            _STOCK_DF = pd.concat(stock_parts, ignore_index=True)
+            # Group by ingredient to sum up duplicates if any
+            _STOCK_DF = _STOCK_DF.groupby("ingredient", as_index=False)[['stock_qty', 'income_qty', 'outcome_qty']].sum()
+        else:
+            _STOCK_DF = None
+            
+        # 4. History
+        if turnover_history_parts:
+            _TURNOVER_HISTORY_DF = pd.concat(turnover_history_parts, ignore_index=True)
+            _TURNOVER_HISTORY_DF = _TURNOVER_HISTORY_DF.drop_duplicates()
+        else:
+            _TURNOVER_HISTORY_DF = None
 
         dropped_df = pd.DataFrame(dropped_items)
         if not dropped_df.empty and "Себестоимость" in dropped_df.columns:
@@ -519,9 +618,12 @@ def download_and_process_yandex(yandex_token, yandex_path="RestoAnalytic"):
         }
         LAST_SYNC_META["warnings"] = warnings_total
 
-        msg = f"Обновлено строк: {len(full_df)}. Отброшено: {dropped_total['count']}."
+        msg = f"Обновлено строк продаж: {len(full_df) if data_frames else 0}. "
+        msg += f"Рецептов: {len(_RECIPES_DB)}. Товаров: {len(_STOCK_DF) if _STOCK_DF is not None else 0}."
+        
         if warnings_total:
             msg += f" Предупреждений: {len(warnings_total)}."
+            
         return True, msg
     except Exception as exc:
         LAST_SYNC_META["warnings"] = [str(exc)]
