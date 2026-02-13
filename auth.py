@@ -165,7 +165,7 @@ def resolve_runtime_session(token, user_agent=None):
     with _db_conn() as conn:
         row = conn.execute(
             """
-            SELECT user_id, expires_at
+            SELECT user_id, expires_at, ua_hash
             FROM sessions
             WHERE token = ?
             """,
@@ -175,7 +175,7 @@ def resolve_runtime_session(token, user_agent=None):
         if not row:
             return None
 
-        user_id, expires_raw = row
+        user_id, expires_raw, expected_ua_hash = row
         try:
             expires_at = datetime.fromisoformat(expires_raw)
         except ValueError:
@@ -184,6 +184,13 @@ def resolve_runtime_session(token, user_agent=None):
             return None
 
         if now > expires_at:
+            conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+            conn.commit()
+            return None
+
+        # Soft UA binding: enforce only when both hashes exist.
+        actual_ua_hash = _hash_user_agent(user_agent)
+        if expected_ua_hash and actual_ua_hash and not hmac.compare_digest(expected_ua_hash, actual_ua_hash):
             conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
             conn.commit()
             return None

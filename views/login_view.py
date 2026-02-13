@@ -4,6 +4,25 @@ import sqlite3
 import streamlit.components.v1 as components
 
 def render_auth_screen():
+    # Recover cookie from localStorage if browser lost it (after idle/restart).
+    components.html(
+        """
+        <script>
+        (function () {
+          const token = localStorage.getItem("resto_auth_token");
+          const attempted = sessionStorage.getItem("resto_auto_login_attempted");
+          const hasCookie = document.cookie.split("; ").some((x) => x.startsWith("resto_auth_token="));
+          if (token && !hasCookie && !attempted) {
+            sessionStorage.setItem("resto_auto_login_attempted", "1");
+            document.cookie = "resto_auth_token=" + encodeURIComponent(token) + "; path=/; max-age=2592000; SameSite=Lax";
+            window.location.reload();
+          }
+        })();
+        </script>
+        """,
+        height=0
+    )
+
     st.title("🔐 Вход в RestoAnalytic")
     tab_login, tab_register = st.tabs(["Вход", "Регистрация"])
 
@@ -35,6 +54,8 @@ def render_auth_screen():
                         f"""
                         <script>
                             document.cookie = "resto_auth_token=" + encodeURIComponent("{token}") + "; path=/; max-age=2592000; SameSite=Lax";
+                            localStorage.setItem("resto_auth_token", "{token}");
+                            sessionStorage.removeItem("resto_auto_login_attempted");
                         </script>
                         """,
                         height=0

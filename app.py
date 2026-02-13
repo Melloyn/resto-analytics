@@ -47,6 +47,8 @@ def clear_browser_auth_token():
         """
         <script>
           document.cookie = "resto_auth_token=; path=/; max-age=0; SameSite=Lax";
+          localStorage.removeItem("resto_auth_token");
+          sessionStorage.removeItem("resto_auto_login_attempted");
         </script>
         """,
         height=0,
@@ -234,6 +236,7 @@ with st.sidebar:
             target_date = datetime.now()
             period_title_base = ""
             prev_label = ""
+            inflation_start_date = None
             
             if period_mode == "📌 Последний загруженный день":
                  last_day = pd.to_datetime(df_full['Дата_Отчета']).max().normalize()
@@ -243,6 +246,7 @@ with st.sidebar:
                  df_prev = pd.DataFrame()
                  period_title_base = f"{last_day.strftime('%d.%m.%Y')} (последний загруженный день)"
                  target_date = day_end
+                 inflation_start_date = day_start.replace(day=1)
 
             elif period_mode == "📅 Месяц (Сравнение)":
                  df_full['YearMonth'] = df_full['Дата_Отчета'].dt.to_period('M')
@@ -266,6 +270,7 @@ with st.sidebar:
                      df_current = df_full[(df_full['Дата_Отчета'] >= start_cur) & (df_full['Дата_Отчета'] <= end_cur)]
                      period_title_base = f"{selected_ym.strftime('%b %Y')} ({scope_mode})"
                      target_date = end_cur
+                     inflation_start_date = start_cur
                      
                      compare_mode = st.selectbox("Сравнить с:", ["Предыдущий месяц", "Год назад", "Нет"], index=1)
                      
@@ -291,6 +296,7 @@ with st.sidebar:
                     df_current = df_full[(df_full['Дата_Отчета'] >= s) & (df_full['Дата_Отчета'] <= e)]
                     period_title_base = f"{s.date()} - {e.date()}"
                     target_date = e
+                    inflation_start_date = s
         
         # --- RENDER EXPORT SIDEBAR ---
         reports_view.render_sidebar_export(df_current, df_full, tg_token, tg_chat, pd.to_datetime(target_date))
@@ -323,7 +329,7 @@ if not df_current.empty:
     st.divider()
     
     if selected_tab == "🔥 Инфляция":
-        reports_view.render_inflation(df_full, df_current, target_date)
+        reports_view.render_inflation(df_full, df_current, target_date, inflation_start_date)
             
     elif selected_tab == "📉 Динамика":
         reports_view.render_dynamics(df_full, df_current)
