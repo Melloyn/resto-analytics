@@ -324,15 +324,12 @@ if not df_current.empty:
             elif i['level'] == 'success': st.success(i['message'])
 
     # --- TABS ---
-    tab_options = ["🔥 Инфляция", "📉 Динамика", "🍰 Меню и Косты", "⭐ Матрица (ABC)", "🗓 Дни недели", "📦 Закупки", "🔮 Симулятор"]
+    tab_options = ["🔥 Инфляция", "🍰 Меню и Косты", "⭐ Матрица (ABC)", "🗓 Дни недели", "📦 Закупки", "🔮 Симулятор"]
     selected_tab = st.radio("Раздел:", tab_options, horizontal=True, label_visibility="collapsed")
     st.divider()
     
     if selected_tab == "🔥 Инфляция":
         reports_view.render_inflation(df_full, df_current, target_date, inflation_start_date)
-            
-    elif selected_tab == "📉 Динамика":
-        reports_view.render_dynamics(df_full, df_current)
             
     elif selected_tab == "🍰 Меню и Косты":
         reports_view.render_menu(df_current, df_prev, period_title_base, prev_label)
@@ -349,6 +346,11 @@ if not df_current.empty:
         
     elif selected_tab == "🔮 Симулятор":
         reports_view.render_simulator(df_current, df_full)
+
+    with st.expander("🔬 Расширенные разделы", expanded=False):
+        adv_tab = st.radio("Дополнительно", ["📉 Динамика"], horizontal=True, label_visibility="collapsed")
+        if adv_tab == "📉 Динамика":
+            reports_view.render_dynamics(df_full, df_current)
 
 else:
     st.warning("Нет данных за выбранный период.")
