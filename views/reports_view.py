@@ -674,6 +674,23 @@ def render_procurement_v2(df_sales, df_full, period_days):
         # Источник: КонсультантПлюс (праздники и перенос выходных в 2026 г.)
         def get_ru_holidays(year):
             holidays = set()
+            if year == 2025:
+                # 29.12.2024–08.01.2025
+                holidays.update(pd.date_range("2024-12-29", "2025-01-08").date)
+                # 22–23.02.2025
+                holidays.update(pd.date_range("2025-02-22", "2025-02-23").date)
+                # 08–09.03.2025
+                holidays.update(pd.date_range("2025-03-08", "2025-03-09").date)
+                # 01–04.05.2025
+                holidays.update(pd.date_range("2025-05-01", "2025-05-04").date)
+                # 08–11.05.2025
+                holidays.update(pd.date_range("2025-05-08", "2025-05-11").date)
+                # 12–15.06.2025
+                holidays.update(pd.date_range("2025-06-12", "2025-06-15").date)
+                # 02–04.11.2025
+                holidays.update(pd.date_range("2025-11-02", "2025-11-04").date)
+                # 31.12.2025
+                holidays.add(pd.to_datetime("2025-12-31").date())
             if year == 2026:
                 # 31.12.2025–11.01.2026
                 holidays.update(pd.date_range("2025-12-31", "2026-01-11").date)
