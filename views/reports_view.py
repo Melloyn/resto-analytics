@@ -8,6 +8,7 @@ import telegram_utils
 from io import BytesIO
 from datetime import datetime, timedelta
 import data_engine
+from services import parsing_service
 
 logger = logging.getLogger(__name__)
 
@@ -630,7 +631,7 @@ def render_procurement_v2(df_sales, df_full, period_days):
         
         # Group sales
         s_grouped = df_source.groupby("Блюдо")["Количество"].sum().reset_index()
-        s_grouped["norm_dish"] = s_grouped["Блюдо"].apply(lambda x: str(x).lower().strip())
+        s_grouped["norm_dish"] = s_grouped["Блюдо"].apply(lambda x: parsing_service.normalize_name(str(x)))
         
         cons_data = []
         for _, row in s_grouped.iterrows():
@@ -660,12 +661,24 @@ def render_procurement_v2(df_sales, df_full, period_days):
     sigma_map = {}
     
     if "Умный" in forecast_method:
+        # 2. Helper to get Weekday Profiles (Sales Based) with RECURSION
+        # SWITCH: Use History or Sales?
+        df_history = data_engine.get_turnover_history()
+        use_history = df_history is not None and not df_history.empty
+
+        profile_trend = {}
+        profile_ly = {}
+
+        # Ensure datetime in history
+        if use_history and not pd.api.types.is_datetime64_any_dtype(df_history['date']):
+            df_history['date'] = pd.to_datetime(df_history['date'])
+
         # 1. Determine Target Dates (Tomorrow -> Tomorrow + N)
-        # We assume procurement is for FUTURE.
-        # Let's say we start "Tomorrow" relative to the last report date?
-        # Or just use the next N dates from "Today" (Realtime)?
-        # Since reports might be old, let's use: LastReportDate + 1 -> + N
-        last_report_date = df_full['Дата_Отчета'].max()
+        # Since reports might be old, we use: LastReportDate + 1 -> + N
+        if use_history:
+            last_report_date = df_history['date'].max()
+        else:
+            last_report_date = df_full['Дата_Отчета'].max()
         target_dates = [last_report_date + timedelta(days=i) for i in range(1, target_days + 1)]
         target_weekdays = [d.weekday() for d in target_dates] # 0=Mon, 6=Sun
 
@@ -729,124 +742,16 @@ def render_procurement_v2(df_sales, df_full, period_days):
             if d.strftime("%m-%d") in base_holidays:
                 holiday_dates.add(d.date())
 
-        # Add RU 2026 production calendar holidays (with transfers)
         years_in_targets = {d.year for d in target_dates}
         for y in years_in_targets:
             holiday_dates.update(get_ru_holidays(y))
-        
-        # 2. Helper to get Weekday Profiles (Sales Based) with RECURSION
-        def get_weekday_profile_sales(df_src):
-            if df_src.empty: return {}
-            df_src = df_src.copy()
-            df_src['Weekday'] = df_src['Дата_Отчета'].dt.weekday
-            daily_sales = df_src.groupby(['Дата_Отчета', 'Блюдо'])['Количество'].sum().reset_index()
-            daily_sales['Weekday'] = daily_sales['Дата_Отчета'].dt.weekday
-            dish_weekday_avg = daily_sales.groupby(['Блюдо', 'Weekday'])['Количество'].median().reset_index()
-            dish_weekday_avg['norm_dish'] = dish_weekday_avg['Блюдо'].apply(lambda x: str(x).lower().strip())
-            
-            profile = {}
-            
-            # Recursive helper
-            def resolve_ingredients(name, qty_needed, weekday, profile_dict, depth=0):
-                if depth > 10: return # Avoid infinite loops
-                
-                # Check directly in recipes
-                ings = recipes_map.get(name)
-                
-                if ings:
-                    # It's a compound dish/p-f -> Resolve children
-                    for ing in ings:
-                        i_name = ing['ingredient']
-                        # Recursive call: sub-ingredient needed = qty_needed * qty_per_parent
-                        sub_qty = qty_needed * ing['qty_per_dish']
-                        resolve_ingredients(i_name, sub_qty, weekday, profile_dict, depth+1)
-                else:
-                    # It's a raw ingredient (or we don't have a recipe for it) -> Add to profile
-                    if name not in profile_dict: profile_dict[name] = {w: 0.0 for w in range(7)}
-                    profile_dict[name][weekday] += qty_needed
-            
-            for _, row in dish_weekday_avg.iterrows():
-                name = row['norm_dish']
-                avg_qty = row['Количество']
-                wd = row['Weekday']
-                
-                # Start resolution
-                resolve_ingredients(name, avg_qty, wd, profile)
-                
-            return profile
-
-        # 3. Helper to get Weekday Profiles (History Based)
-        # For History (1C Turnover), we likely see BOTH Raw Ingredients AND Semi-finished.
-        # If we see Raw Ingredients consumption, we don't need to explode Semi-finished.
-        # We just need to Hide Semi-finished from the Buy List if they are produced internally.
-        def get_weekday_profile_history(df_src):
-            if df_src.empty: return {}
-            # df_src columns: date, ingredient, qty_out
-            df_src = df_src.copy()
-            df_src['weekday'] = df_src['date'].dt.weekday
-            
-            # Median consumption per weekday
-            grp = df_src.groupby(['ingredient', 'weekday'])['qty_out'].median()
-            
-            profile = {}
-            for (ing, wd), qty in grp.items():
-                if ing in recipes_map:
-                    # This is a Semi-Finished product / Dish (has a recipe).
-                    # We assume its raw ingredients are ALSO tracked in 1C Turnover (outcome).
-                    # So we ignore this item for PROCUREMENT purposes.
-                    continue
-                
-                if ing not in profile: profile[ing] = {w: 0.0 for w in range(7)}
-                profile[ing][wd] = qty
-            return profile
-
-        # SWITCH: Use History or Sales?
-        df_history = data_engine.get_turnover_history()
-        use_history = df_history is not None and not df_history.empty
-        
-        profile_trend = {}
-        profile_ly = {}
-        
-        if use_history:
-            # --- HISTORY MODE ---
-            # Ensure dates are datetime
-            if not pd.api.types.is_datetime64_any_dtype(df_history['date']):
-                df_history['date'] = pd.to_datetime(df_history['date'])
-                
-            # Trend
-            trend_start = last_report_date - timedelta(days=trend_window_days)
-            df_h_trend = df_history[df_history['date'] >= trend_start]
-            profile_trend = get_weekday_profile_history(df_h_trend)
-            
-            # Seasonal
-            ly_center = last_report_date - timedelta(days=365)
-            ly_start = ly_center - timedelta(days=ly_window_days)
-            ly_end = ly_center + timedelta(days=ly_window_days)
-            df_h_ly = df_history[(df_history['date'] >= ly_start) & (df_history['date'] <= ly_end)]
-            profile_ly = get_weekday_profile_history(df_h_ly)
-        else:
-            # --- SALES MODE (Legacy) ---
-            # Trend
-            trend_start = last_report_date - timedelta(days=trend_window_days)
-            df_trend = df_full[df_full['Дата_Отчета'] >= trend_start]
-            profile_trend = get_weekday_profile_sales(df_trend)
-            
-            # Seasonal
-            ly_center = last_report_date - timedelta(days=365)
-            ly_start = ly_center - timedelta(days=ly_window_days)
-            ly_end = ly_center + timedelta(days=ly_window_days)
-            df_ly = df_full[(df_full['Дата_Отчета'] >= ly_start) & (df_full['Дата_Отчета'] <= ly_end)]
-            profile_ly = get_weekday_profile_sales(df_ly)
-
-        # 3b. Daily consumption stats for safety stock
-        avg_current_map = dict(zip(df_cons_current["ingredient"], df_cons_current["avg_current"])) if not df_cons_current.empty else {}
 
         def explode_sales_to_ingredients(df_src):
             if df_src.empty:
                 return pd.DataFrame(columns=["date", "ingredient", "qty"])
             df_src = df_src.copy()
             daily_sales = df_src.groupby(['Дата_Отчета', 'Блюдо'])['Количество'].sum().reset_index()
-            daily_sales['norm_dish'] = daily_sales['Блюдо'].apply(lambda x: str(x).lower().strip())
+            daily_sales['norm_dish'] = daily_sales['Блюдо'].apply(lambda x: parsing_service.normalize_name(str(x)))
             rows = []
 
             def resolve_ingredients(name, qty_needed, dt, depth=0):
@@ -867,36 +772,84 @@ def render_procurement_v2(df_sales, df_full, period_days):
                 return pd.DataFrame(columns=["date", "ingredient", "qty"])
             return pd.DataFrame(rows)
 
+        def get_combined_daily(start_date, end_date):
+            # Sales-based daily ingredients
+            df_sales_range = df_full[(df_full['Дата_Отчета'] >= start_date) & (df_full['Дата_Отчета'] <= end_date)]
+            df_sales_ing = explode_sales_to_ingredients(df_sales_range)
+            if not df_sales_ing.empty:
+                df_sales_ing = df_sales_ing.groupby(['ingredient', 'date'])['qty'].sum().reset_index()
+
+            # History-based daily ingredients
+            df_hist_ing = pd.DataFrame(columns=["ingredient", "date", "qty_out"])
+            if use_history:
+                df_hist_ing = df_history[(df_history['date'] >= start_date) & (df_history['date'] <= end_date)].copy()
+                if not df_hist_ing.empty:
+                    # Exclude semi-finished (have recipes)
+                    df_hist_ing = df_hist_ing[~df_hist_ing['ingredient'].isin(recipes_map.keys())]
+                    df_hist_ing = df_hist_ing.groupby(['ingredient', 'date'])['qty_out'].sum().reset_index()
+
+            if df_hist_ing.empty and df_sales_ing.empty:
+                return pd.DataFrame(columns=["ingredient", "date", "qty"])
+
+            df_combined = pd.merge(
+                df_sales_ing.rename(columns={"qty": "qty_sales"}),
+                df_hist_ing.rename(columns={"qty_out": "qty_hist"}),
+                on=["ingredient", "date"],
+                how="outer"
+            )
+            df_combined["qty"] = df_combined["qty_hist"].where(df_combined["qty_hist"].notna(), df_combined["qty_sales"])
+            return df_combined[["ingredient", "date", "qty"]].fillna(0)
+
+        def get_weekday_profile_from_daily(df_daily):
+            if df_daily.empty:
+                return {}
+            df_daily = df_daily.copy()
+            df_daily['weekday'] = df_daily['date'].dt.weekday
+            grp = df_daily.groupby(['ingredient', 'weekday'])['qty'].median()
+            profile = {}
+            for (ing, wd), qty in grp.items():
+                if ing not in profile:
+                    profile[ing] = {w: 0.0 for w in range(7)}
+                profile[ing][wd] = qty
+            return profile
+
+        # Trend window
+        trend_start = last_report_date - timedelta(days=trend_window_days)
+        df_trend_daily = get_combined_daily(trend_start, last_report_date)
+        profile_trend = get_weekday_profile_from_daily(df_trend_daily)
+
+        # Seasonal (Last Year window)
+        ly_center = last_report_date - timedelta(days=365)
+        ly_start = ly_center - timedelta(days=ly_window_days)
+        ly_end = ly_center + timedelta(days=ly_window_days)
+        df_ly_daily = get_combined_daily(ly_start, ly_end)
+        profile_ly = get_weekday_profile_from_daily(df_ly_daily)
+
+        # 3b. Daily consumption stats for safety stock
+        avg_current_map = dict(zip(df_cons_current["ingredient"], df_cons_current["avg_current"])) if not df_cons_current.empty else {}
+        if not df_sales.empty and use_history:
+            period_start = df_sales['Дата_Отчета'].min()
+            period_end = df_sales['Дата_Отчета'].max()
+            df_period_daily = get_combined_daily(period_start, period_end)
+            if not df_period_daily.empty:
+                avg_current_map = (df_period_daily.groupby('ingredient')['qty'].sum() / days_in_period).to_dict()
+
         def compute_sigma_map():
             end_date = last_report_date
             start_date = last_report_date - timedelta(days=sigma_window_days - 1)
             date_index = pd.date_range(start_date, end_date, freq="D")
             sigma_map = {}
 
-            if use_history:
-                df_h = df_history[(df_history['date'] >= start_date) & (df_history['date'] <= end_date)].copy()
-                if df_h.empty:
-                    return sigma_map
-                df_h['date'] = pd.to_datetime(df_h['date'])
-                df_h = df_h[~df_h['ingredient'].isin(recipes_map.keys())]
-                agg = df_h.groupby(['ingredient', 'date'])['qty_out'].sum().reset_index()
-                for ing, sub in agg.groupby('ingredient'):
-                    series = pd.Series(0.0, index=date_index)
-                    sub_series = sub.set_index('date')['qty_out']
-                    series.loc[sub_series.index] = sub_series.values
-                    sigma_map[ing] = float(series.std(ddof=0))
-            else:
-                df_s = df_full[(df_full['Дата_Отчета'] >= start_date) & (df_full['Дата_Отчета'] <= end_date)]
-                df_exp = explode_sales_to_ingredients(df_s)
-                if df_exp.empty:
-                    return sigma_map
-                df_exp['date'] = pd.to_datetime(df_exp['date'])
-                agg = df_exp.groupby(['ingredient', 'date'])['qty'].sum().reset_index()
-                for ing, sub in agg.groupby('ingredient'):
-                    series = pd.Series(0.0, index=date_index)
-                    sub_series = sub.set_index('date')['qty']
-                    series.loc[sub_series.index] = sub_series.values
-                    sigma_map[ing] = float(series.std(ddof=0))
+            df_sigma = get_combined_daily(start_date, end_date)
+            if df_sigma.empty:
+                return sigma_map
+            df_sigma['date'] = pd.to_datetime(df_sigma['date'])
+            agg = df_sigma.groupby(['ingredient', 'date'])['qty'].sum().reset_index()
+            for ing, sub in agg.groupby('ingredient'):
+                series = pd.Series(0.0, index=date_index)
+                sub_series = sub.set_index('date')['qty']
+                series.loc[sub_series.index] = sub_series.values
+                sigma_map[ing] = float(series.std(ddof=0))
             return sigma_map
 
         sigma_map = compute_sigma_map()
