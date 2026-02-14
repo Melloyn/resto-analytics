@@ -670,6 +670,29 @@ def render_procurement_v2(df_sales, df_full, period_days):
         target_weekdays = [d.weekday() for d in target_dates] # 0=Mon, 6=Sun
 
         # Holidays (base + manual)
+        # РФ 2026 (производственный календарь): периоды отдыха с переносами
+        # Источник: КонсультантПлюс (праздники и перенос выходных в 2026 г.)
+        def get_ru_holidays(year):
+            holidays = set()
+            if year == 2026:
+                # 31.12.2025–11.01.2026
+                holidays.update(pd.date_range("2025-12-31", "2026-01-11").date)
+                # 21–23.02.2026
+                holidays.update(pd.date_range("2026-02-21", "2026-02-23").date)
+                # 07–09.03.2026
+                holidays.update(pd.date_range("2026-03-07", "2026-03-09").date)
+                # 01–03.05.2026
+                holidays.update(pd.date_range("2026-05-01", "2026-05-03").date)
+                # 09–11.05.2026
+                holidays.update(pd.date_range("2026-05-09", "2026-05-11").date)
+                # 12–14.06.2026
+                holidays.update(pd.date_range("2026-06-12", "2026-06-14").date)
+                # 04.11.2026
+                holidays.add(pd.to_datetime("2026-11-04").date())
+                # 31.12.2026
+                holidays.add(pd.to_datetime("2026-12-31").date())
+            return holidays
+
         base_holidays = {
             "01-01", "01-02", "01-03", "01-04", "01-05", "01-06", "01-07", "01-08",
             "02-23", "03-08", "05-01", "05-09", "06-12", "11-04"
@@ -688,6 +711,11 @@ def render_procurement_v2(df_sales, df_full, period_days):
         for d in target_dates:
             if d.strftime("%m-%d") in base_holidays:
                 holiday_dates.add(d.date())
+
+        # Add RU 2026 production calendar holidays (with transfers)
+        years_in_targets = {d.year for d in target_dates}
+        for y in years_in_targets:
+            holiday_dates.update(get_ru_holidays(y))
         
         # 2. Helper to get Weekday Profiles (Sales Based) with RECURSION
         def get_weekday_profile_sales(df_src):
