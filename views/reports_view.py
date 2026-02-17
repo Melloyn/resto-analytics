@@ -603,7 +603,32 @@ def render_procurement_v2(df_sales, df_full, period_days):
     with c_days:
          target_days = st.slider("На сколько дней закупаем?", 1, 30, 7)
 
-    with st.expander("⚙️ Параметры прогноза", expanded=False):
+    preset_mode = st.selectbox(
+        "Режим прогноза",
+        ["Авто (рекомендуется)", "Стабильно", "Агрессивно", "Пользовательский"],
+        index=0
+    )
+
+    # Defaults for presets
+    preset_params = {
+        "Авто (рекомендуется)": dict(
+            lead_time=3, trend_window_days=28, ly_window_days=14, sigma_window_days=56,
+            service_level=95, holiday_boost=20, trend_weight=0.6, ly_weight=0.4,
+            use_weekday_yoy=True, yoy_cap=1.5
+        ),
+        "Стабильно": dict(
+            lead_time=3, trend_window_days=42, ly_window_days=21, sigma_window_days=90,
+            service_level=98, holiday_boost=10, trend_weight=0.4, ly_weight=0.6,
+            use_weekday_yoy=True, yoy_cap=1.3
+        ),
+        "Агрессивно": dict(
+            lead_time=2, trend_window_days=21, ly_window_days=10, sigma_window_days=42,
+            service_level=90, holiday_boost=30, trend_weight=0.75, ly_weight=0.25,
+            use_weekday_yoy=True, yoy_cap=1.8
+        ),
+    }
+
+    with st.expander("⚙️ Параметры прогноза (расширенные)", expanded=(preset_mode == "Пользовательский")):
         c1, c2, c3 = st.columns(3)
         with c1:
             lead_time = st.slider("Lead time (дней)", 0, 21, 3)
@@ -623,6 +648,20 @@ def render_procurement_v2(df_sales, df_full, period_days):
 
         st.caption("Праздники: введите даты в формате `YYYY-MM-DD` или `DD.MM.YYYY`, по одной в строке.")
         holiday_text = st.text_area("Доп. праздники", value="", height=100)
+
+    if preset_mode != "Пользовательский":
+        p = preset_params[preset_mode]
+        lead_time = p["lead_time"]
+        trend_window_days = p["trend_window_days"]
+        ly_window_days = p["ly_window_days"]
+        sigma_window_days = p["sigma_window_days"]
+        service_level = p["service_level"]
+        holiday_boost = p["holiday_boost"]
+        trend_weight = p["trend_weight"]
+        ly_weight = p["ly_weight"]
+        use_weekday_yoy = p["use_weekday_yoy"]
+        yoy_cap = p["yoy_cap"]
+        st.info(f"Режим: {preset_mode}. Используются встроенные параметры.")
 
     days_in_period = max(1, period_days)
 
