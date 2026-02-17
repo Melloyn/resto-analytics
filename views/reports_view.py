@@ -978,7 +978,7 @@ def render_procurement_v2(df_sales, df_full, period_days):
     if on_order_cols:
         df_final["on_order"] = df_final[on_order_cols[0]].fillna(0)
     else:
-    df_final["on_order"] = 0.0
+        df_final["on_order"] = 0.0
     
     # Days Left = Stock / Daily Forecast
     df_final["days_left"] = df_final.apply(
