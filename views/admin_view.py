@@ -3,11 +3,14 @@ import pandas as pd
 import auth
 import os
 from services import category_service
+from services import parsing_service
+import data_engine
+from datetime import datetime
 
 def render_admin_panel(main_loader_slot):
     st.header("⚙️ Панель Администратора")
     
-    tab_users, tab_cats, tab_debug = st.tabs(["👥 Пользователи", "🏷 Категории", "🐞 Debug"])
+    tab_users, tab_cats, tab_misc, tab_debug = st.tabs(["👥 Пользователи", "🏷 Категории", "📦 Прочее", "🐞 Debug"])
 
     # --- TAB 1: USERS ---
     with tab_users:
@@ -114,7 +117,67 @@ def render_admin_panel(main_loader_slot):
                 else:
                     st.warning("Не найдено.")
 
-    # --- TAB 3: DEBUG ---
+    # --- TAB 3: MISC / OTHER ---
+    with tab_misc:
+        st.caption("Позиции с категорией '📦 Прочее'. Здесь можно быстро разнести их по правильным категориям.")
+        df_full = st.session_state.get("df_full")
+        if df_full is None or df_full.empty:
+            st.info("Нет загруженных данных.")
+        elif "Категория" not in df_full.columns or "Блюдо" not in df_full.columns:
+            st.info("В данных нет колонки 'Категория' или 'Блюдо'.")
+        else:
+            other_df = df_full[df_full["Категория"] == "📦 Прочее"].copy()
+            if other_df.empty:
+                st.success("Позиции 'Прочее' не найдены.")
+            else:
+                agg = other_df.groupby("Блюдо").agg({
+                    "Выручка с НДС": "sum",
+                    "Количество": "sum"
+                }).reset_index().sort_values("Выручка с НДС", ascending=False)
+                agg["Новая категория"] = ""
+                all_cats = category_service.get_all_known_categories()
+
+                st.write(f"Найдено позиций: {len(agg)}")
+                edited = st.data_editor(
+                    agg,
+                    use_container_width=True,
+                    height=400,
+                    column_config={
+                        "Выручка с НДС": st.column_config.NumberColumn(format="%.0f ₽"),
+                        "Количество": st.column_config.NumberColumn(format="%.0f"),
+                        "Новая категория": st.column_config.SelectboxColumn(
+                            options=all_cats,
+                            required=False
+                        ),
+                    }
+                )
+
+                if st.button("💾 Сохранить назначения", type="primary"):
+                    updates = {}
+                    for _, row in edited.iterrows():
+                        new_cat = str(row.get("Новая категория") or "").strip()
+                        dish = str(row.get("Блюдо") or "").strip()
+                        if dish and new_cat:
+                            updates[parsing_service.normalize_name(dish)] = new_cat
+                    if updates:
+                        category_service.save_categories(updates)
+                        # Re-apply categories in-memory
+                        cat_mapping = category_service.load_categories()
+                        df_full["Категория"] = df_full["Блюдо"].apply(
+                            lambda x: data_engine.detect_category_granular(x, cat_mapping)
+                        )
+                        df_full["Макро_Категория"] = df_full["Категория"].apply(
+                            data_engine.get_macro_category
+                        )
+                        st.session_state.df_full = df_full
+                        st.session_state.df_version += 1
+                        st.session_state.categories_applied_sig = datetime.utcnow().isoformat() if "datetime" in globals() else "updated"
+                        st.success(f"Обновлено категорий: {len(updates)}")
+                        st.rerun()
+                    else:
+                        st.info("Нет выбранных назначений.")
+
+    # --- TAB 4: DEBUG ---
     with tab_debug:
         st.write("### 🐞 Debug: Отброшенные позиции")
         if st.session_state.dropped_stats and st.session_state.dropped_stats['count'] > 0:
