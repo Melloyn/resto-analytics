@@ -426,7 +426,31 @@ def render_menu(df_current, df_prev, current_label="", prev_label=""):
     
     c1, c2 = st.columns([1, 1.5])
     with c1:
-        fig = px.pie(cats, values='Выручка с НДС', names=target_cat, hole=0.45, title="Структура выручки")
+        # Clean donut: group small categories into "Прочее" and simplify legend
+        cats_sorted = cats.sort_values('Выручка с НДС', ascending=False).copy()
+        total_rev = cats_sorted['Выручка с НДС'].sum()
+        if total_rev > 0:
+            cats_sorted['share'] = cats_sorted['Выручка с НДС'] / total_rev
+            small_mask = cats_sorted['share'] < 0.03
+            if small_mask.any():
+                other_sum = cats_sorted.loc[small_mask, 'Выручка с НДС'].sum()
+                cats_sorted = cats_sorted.loc[~small_mask, [target_cat, 'Выручка с НДС']]
+                cats_sorted = pd.concat(
+                    [cats_sorted, pd.DataFrame({target_cat: ["📦 Прочее"], "Выручка с НДС": [other_sum]})],
+                    ignore_index=True
+                )
+        fig = px.pie(
+            cats_sorted,
+            values='Выручка с НДС',
+            names=target_cat,
+            hole=0.55,
+            title="Структура выручки"
+        )
+        fig.update_traces(textposition='inside', textinfo='percent', insidetextorientation='radial')
+        fig.update_layout(
+            legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5),
+            margin=dict(l=10, r=10, t=40, b=60)
+        )
         st.plotly_chart(ui.update_chart_layout(fig), use_container_width=True)
     with c2:
         if not df_current.empty:
