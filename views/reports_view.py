@@ -435,14 +435,17 @@ def render_menu(df_current, df_prev, current_label="", prev_label=""):
             cost_end = period_sorted.groupby('Блюдо')['Unit_Cost'].last()
             agg = df_current.groupby('Блюдо').agg({
                 'Выручка с НДС': 'sum',
-                'Себестоимость': 'sum'
+                'Себестоимость': 'sum',
+                'Количество': 'sum'
             })
             agg['Факт фудкост %'] = (agg['Себестоимость'] / agg['Выручка с НДС'] * 100).fillna(0)
             df_fc = pd.DataFrame({
                 'Блюдо': agg.index,
                 'С/С начало периода': cost_start,
                 'С/С конец периода': cost_end,
-                'Факт фудкост %': agg['Факт фудкост %']
+                'Факт фудкост %': agg['Факт фудкост %'],
+                'Выручка с НДС': agg['Выручка с НДС'],
+                'Кол-во продано': agg['Количество']
             }).reset_index(drop=True)
             df_fc = df_fc.sort_values('Факт фудкост %', ascending=False)
             st.dataframe(
@@ -451,6 +454,8 @@ def render_menu(df_current, df_prev, current_label="", prev_label=""):
                     "С/С начало периода": st.column_config.NumberColumn(format="%.2f ₽"),
                     "С/С конец периода": st.column_config.NumberColumn(format="%.2f ₽"),
                     "Факт фудкост %": st.column_config.NumberColumn(format="%.1f %%"),
+                    "Выручка с НДС": st.column_config.NumberColumn(format="%.0f ₽"),
+                    "Кол-во продано": st.column_config.NumberColumn(format="%.0f"),
                 },
                 use_container_width=True,
                 height=400
