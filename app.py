@@ -41,6 +41,8 @@ if 'yandex_path' not in st.session_state:
     st.session_state.yandex_path = "RestoAnalytic"
 if 'edit_yandex_path' not in st.session_state:
     st.session_state.edit_yandex_path = False
+if 'admin_fullscreen' not in st.session_state:
+    st.session_state.admin_fullscreen = False
 
 def clear_browser_auth_token():
     components.html(
@@ -108,6 +110,13 @@ if st.session_state.auth_user is not None:
     st.session_state.is_admin = st.session_state.auth_user.get("role") == "admin"
 
 # === ГЛАВНЫЙ ИНТЕРФЕЙС ===
+if st.session_state.is_admin and st.session_state.admin_fullscreen:
+    st.title("⚙️ Администрирование")
+    if st.button("← Вернуться к аналитике", type="secondary"):
+        st.session_state.admin_fullscreen = False
+        st.rerun()
+    admin_view.render_admin_panel(None)
+    st.stop()
 
 st.title(f"📊 Аналитика: {st.session_state.auth_user['full_name']}")
 
@@ -137,7 +146,11 @@ with st.sidebar:
     # --- ADMIN AREA ---
     if st.session_state.is_admin:
         with st.expander("⚙️ Администрирование", expanded=False):
-            admin_view.render_admin_panel(None)
+            if st.button("🖥️ Открыть в центре", use_container_width=True):
+                st.session_state.admin_fullscreen = True
+                st.rerun()
+            if not st.session_state.admin_fullscreen:
+                admin_view.render_admin_panel(None)
         st.divider()
 
     # --- DATA LOADING ---
