@@ -619,6 +619,8 @@ def render_procurement_v2(df_sales, df_full, period_days):
             sigma_window_days = st.slider("Окно волатильности (дней)", 14, 180, 56)
             pack_size_default = st.number_input("Кратность (упаковка)", 0.0, 10000.0, 0.0)
             min_order_default = st.number_input("Мин. заказ (MOQ)", 0.0, 10000.0, 0.0)
+            use_weekday_yoy = st.checkbox("Усилить сравнение по дням недели (YoY)", value=True)
+            yoy_cap = st.slider("Ограничение YoY коэффициента", 0.5, 2.0, 1.5)
 
         st.caption("Праздники: введите даты в формате `YYYY-MM-DD` или `DD.MM.YYYY`, по одной в строке.")
         holiday_text = st.text_area("Доп. праздники", value="", height=100)
@@ -882,6 +884,15 @@ def render_procurement_v2(df_sales, df_full, period_days):
                 # Forecast for this specific day = (Trend[wd] + LY[wd]) / 2
                 val_t = p_trend[wd]
                 val_l = p_ly[wd]
+
+                # Weekday YoY adjustment: compare this year's recent weekday vs last year's weekday
+                if use_weekday_yoy and val_l > 0:
+                    ratio = val_t / val_l
+                    if ratio < 1.0 / yoy_cap:
+                        ratio = 1.0 / yoy_cap
+                    elif ratio > yoy_cap:
+                        ratio = yoy_cap
+                    val_l = val_l * ratio
                 
                 sum_trend += val_t
                 sum_ly += val_l
