@@ -429,15 +429,34 @@ def render_menu(df_current, df_prev, current_label="", prev_label=""):
         fig = px.pie(cats, values='Выручка с НДС', names=target_cat, hole=0.45, title="Структура выручки")
         st.plotly_chart(ui.update_chart_layout(fig), use_container_width=True)
     with c2:
-        st.dataframe(
-            items[['Выручка с НДС', 'Себестоимость', 'Фудкост %', 'Количество']],
-            column_config={
-                "Выручка с НДС": st.column_config.NumberColumn(format="%.0f ₽"),
-                "Фудкост %": st.column_config.NumberColumn(format="%.1f %%"),
-            },
-            use_container_width=True,
-            height=400
-        )
+        if not df_current.empty:
+            period_sorted = df_current.sort_values('Дата_Отчета')
+            cost_start = period_sorted.groupby('Блюдо')['Unit_Cost'].first()
+            cost_end = period_sorted.groupby('Блюдо')['Unit_Cost'].last()
+            agg = df_current.groupby('Блюдо').agg({
+                'Выручка с НДС': 'sum',
+                'Себестоимость': 'sum'
+            })
+            agg['Факт фудкост %'] = (agg['Себестоимость'] / agg['Выручка с НДС'] * 100).fillna(0)
+            df_fc = pd.DataFrame({
+                'Блюдо': agg.index,
+                'С/С начало периода': cost_start,
+                'С/С конец периода': cost_end,
+                'Факт фудкост %': agg['Факт фудкост %']
+            }).reset_index(drop=True)
+            df_fc = df_fc.sort_values('Факт фудкост %', ascending=False)
+            st.dataframe(
+                df_fc,
+                column_config={
+                    "С/С начало периода": st.column_config.NumberColumn(format="%.2f ₽"),
+                    "С/С конец периода": st.column_config.NumberColumn(format="%.2f ₽"),
+                    "Факт фудкост %": st.column_config.NumberColumn(format="%.1f %%"),
+                },
+                use_container_width=True,
+                height=400
+            )
+        else:
+            st.info("Нет данных для расчета фудкоста.")
 
     if not df_prev.empty:
         cats_prev, _ = compute_menu_tab_data(df_prev, target_cat)

@@ -5,6 +5,7 @@ import secrets
 import os
 import streamlit as st
 from datetime import datetime, timedelta
+import base64
 
 USERS_DB = "users.db"
 PASSWORD_ITERATIONS = 200_000
@@ -68,6 +69,40 @@ def _hash_user_agent(user_agent):
     if not user_agent:
         return None
     return hashlib.sha256(user_agent.encode("utf-8")).hexdigest()
+
+def _get_session_secret():
+    secret = get_secret("SESSION_SECRET") or os.getenv("SESSION_SECRET")
+    if not secret:
+        secret = get_secret("ADMIN_PASSWORD") or os.getenv("ADMIN_PASSWORD")
+    if not secret:
+        secret = "resto-analytics-dev"
+    return secret.encode("utf-8")
+
+def _encode_b64(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
+
+def _decode_b64(data: str) -> bytes:
+    pad = "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode(data + pad)
+
+def _sign_payload(payload: str) -> str:
+    sig = hmac.new(_get_session_secret(), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{_encode_b64(payload.encode('utf-8'))}.{sig}"
+
+def _unsign_token(token: str):
+    try:
+        b64_payload, sig = token.split(".", 1)
+        payload = _decode_b64(b64_payload).decode("utf-8")
+        expected = hmac.new(_get_session_secret(), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, sig):
+            return None
+        user_id_str, exp_str = payload.split(":", 1)
+        exp_ts = int(exp_str)
+        if int(datetime.utcnow().timestamp()) > exp_ts:
+            return None
+        return int(user_id_str)
+    except Exception:
+        return None
 
 def create_user(full_name, login, email, phone, password, role="user", status="pending"):
     salt_hex, pw_hash = _make_password(password)
@@ -141,9 +176,11 @@ def get_user_by_id(user_id):
     return row
 
 def create_runtime_session(user_id, user_agent=None):
-    token = secrets.token_urlsafe(32)
     now_iso = datetime.utcnow().isoformat()
-    expires_iso = (datetime.utcnow() + timedelta(days=SESSION_TTL_DAYS)).isoformat()
+    expires_at = datetime.utcnow() + timedelta(days=SESSION_TTL_DAYS)
+    expires_iso = expires_at.isoformat()
+    exp_ts = int(expires_at.timestamp())
+    token = _sign_payload(f"{user_id}:{exp_ts}")
     ua_hash = _hash_user_agent(user_agent)
     with _db_conn() as conn:
         conn.execute(
@@ -173,7 +210,21 @@ def resolve_runtime_session(token, user_agent=None):
         ).fetchone()
 
         if not row:
-            return None
+            # Try stateless token if DB session not found (survives server restarts)
+            user_id = _unsign_token(token)
+            if user_id is None:
+                return None
+            expires_iso = (datetime.utcnow() + timedelta(days=SESSION_TTL_DAYS)).isoformat()
+            ua_hash = _hash_user_agent(user_agent)
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO sessions (token, user_id, expires_at, created_at, last_seen_at, ua_hash)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (token, user_id, expires_iso, now.isoformat(), now.isoformat(), ua_hash),
+            )
+            conn.commit()
+            return user_id
 
         user_id, expires_raw, expected_ua_hash = row
         try:
@@ -184,13 +235,6 @@ def resolve_runtime_session(token, user_agent=None):
             return None
 
         if now > expires_at:
-            conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
-            conn.commit()
-            return None
-
-        # Soft UA binding: enforce only when both hashes exist.
-        actual_ua_hash = _hash_user_agent(user_agent)
-        if expected_ua_hash and actual_ua_hash and not hmac.compare_digest(expected_ua_hash, actual_ua_hash):
             conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
             conn.commit()
             return None
