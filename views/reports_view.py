@@ -1064,15 +1064,14 @@ def render_procurement_v2(df_sales, df_full, period_days):
     st.info(f"📊 Загружено рецептов: {len(recipes_map)}. Позиций на складе: {len(stock_df)}")
 
     # Rename & Columns
-    cols_to_show = ["ingredient", "unit", "stock_qty", "days_left", "to_buy", "safety_stock", "on_order"]
+    cols_to_show = ["ingredient", "unit", "stock_qty", "days_left", "to_buy", "safety_stock"]
     rename_map = {
         "ingredient": "Ингредиент",
         "unit": "Ед.",
         "stock_qty": "Остаток",
         "days_left": "Хватит (дней)",
         "to_buy": "Закупить",
-        "safety_stock": "Страх. запас",
-        "on_order": "В пути"
+        "safety_stock": "Страх. запас"
     }
 
     if "Умный" in forecast_method:
