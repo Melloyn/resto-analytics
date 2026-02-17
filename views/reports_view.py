@@ -1105,7 +1105,7 @@ def render_procurement_v2(df_sales, df_full, period_days):
 
     st.dataframe(
         df_display.style.format(format_dict).apply(
-            lambda x: ["background-color: #ffcdd2" if v < 3 else ("background-color: #fff9c4" if v < 7 else "") for v in x], 
+            lambda x: ["color: #e53935; font-weight: 700" if v < 3 else ("color: #f9a825; font-weight: 700" if v < 7 else "") for v in x],
             subset=["Хватит (дней)"]
         )
     )
