@@ -607,7 +607,6 @@ def render_procurement_v2(df_sales, df_full, period_days):
         c1, c2, c3 = st.columns(3)
         with c1:
             lead_time = st.slider("Lead time (дней)", 0, 21, 3)
-            on_order_days = st.slider("В пути (в днях потребления)", 0, 14, 0)
             trend_window_days = st.slider("Окно тренда (дней)", 14, 120, 28)
         with c2:
             service_level = st.selectbox("Service level", [80, 90, 95, 98], index=2)
@@ -979,7 +978,7 @@ def render_procurement_v2(df_sales, df_full, period_days):
     if on_order_cols:
         df_final["on_order"] = df_final[on_order_cols[0]].fillna(0)
     else:
-        df_final["on_order"] = df_final["daily_forecast"] * on_order_days
+    df_final["on_order"] = 0.0
     
     # Days Left = Stock / Daily Forecast
     df_final["days_left"] = df_final.apply(
