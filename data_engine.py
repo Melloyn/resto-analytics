@@ -513,6 +513,11 @@ def download_and_process_yandex(yandex_token, yandex_path="RestoAnalytic"):
                 warnings_total.append(f"Turnover Error {filename}: {err}")
             else:
                 if df_turn is not None:
+                    # Attach report timestamp from file metadata for correct "latest stock" selection
+                    report_ts = file_meta.get("modified") or file_meta.get("created")
+                    if report_ts:
+                        df_turn = df_turn.copy()
+                        df_turn["report_date"] = report_ts
                     stock_parts.append(df_turn)
                 if df_hist is not None and not df_hist.empty:
                     turnover_history_parts.append(df_hist)
@@ -592,8 +597,13 @@ def download_and_process_yandex(yandex_token, yandex_path="RestoAnalytic"):
         # 3. Stock
         if stock_parts:
             _STOCK_DF = pd.concat(stock_parts, ignore_index=True)
-            # Group by ingredient to sum up duplicates if any
-            _STOCK_DF = _STOCK_DF.groupby("ingredient", as_index=False)[['stock_qty', 'income_qty', 'outcome_qty']].sum()
+            # If multiple turnover files exist, use latest stock per ingredient (not sum)
+            if "report_date" in _STOCK_DF.columns:
+                _STOCK_DF["report_date"] = pd.to_datetime(_STOCK_DF["report_date"], errors="coerce")
+                _STOCK_DF = _STOCK_DF.sort_values("report_date")
+                _STOCK_DF = _STOCK_DF.groupby("ingredient", as_index=False).last()
+            else:
+                _STOCK_DF = _STOCK_DF.groupby("ingredient", as_index=False).last()
         else:
             _STOCK_DF = None
             
