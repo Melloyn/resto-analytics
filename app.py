@@ -369,10 +369,11 @@ if not df_current.empty:
     elif selected_tab == "🔮 Симулятор":
         reports_view.render_simulator(df_current, df_full)
 
-    with st.expander("🔬 Расширенные разделы", expanded=False):
-        adv_tab = st.radio("Дополнительно", ["📉 Динамика"], horizontal=True, label_visibility="collapsed")
-        if adv_tab == "📉 Динамика":
-            reports_view.render_dynamics(df_full, df_current)
+    if selected_tab == "🍰 Меню и Косты":
+        with st.expander("🔬 Расширенные разделы", expanded=False):
+            adv_tab = st.radio("Дополнительно", ["📉 Динамика"], horizontal=True, label_visibility="collapsed")
+            if adv_tab == "📉 Динамика":
+                reports_view.render_dynamics(df_full, df_current)
 
 else:
     st.warning("Нет данных за выбранный период.")

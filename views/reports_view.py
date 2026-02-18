@@ -530,6 +530,27 @@ def render_abc(df_current):
     fig.add_hline(y=am, line_dash="dash", line_color="gray")
     st.plotly_chart(ui.update_chart_layout(fig), use_container_width=True)
 
+    with st.expander("📋 Таблица ABC", expanded=False):
+        abc_view = abc.rename(columns={
+            "Блюдо": "Блюдо",
+            "Выручка с НДС": "Выручка",
+            "Себестоимость": "С/С",
+            "Количество": "Кол-во",
+            "Unit_Margin": "Маржа/шт",
+            "Класс": "Класс"
+        })
+        st.dataframe(
+            abc_view[["Блюдо", "Класс", "Выручка", "С/С", "Кол-во", "Маржа/шт"]],
+            column_config={
+                "Выручка": st.column_config.NumberColumn(format="%.0f ₽"),
+                "С/С": st.column_config.NumberColumn(format="%.0f ₽"),
+                "Кол-во": st.column_config.NumberColumn(format="%.0f"),
+                "Маржа/шт": st.column_config.NumberColumn(format="%.0f ₽"),
+            },
+            use_container_width=True,
+            height=400
+        )
+
 def render_simulator(df_current, df_full):
     st.subheader("🔮 Симулятор: Анализ 'Что если?'")
     
