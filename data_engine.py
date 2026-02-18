@@ -63,7 +63,7 @@ def detect_header_row(df_preview, required_column):
             return idx
     return None
 
-from services import category_service
+from services import category_service, parsing_service
 
 def get_macro_category(cat):
     if cat in ['☕ Кофе', '🍵 Чай', '🍓 Милк/Фреш/Смузи', '🧉 Коктейль Б/А', '🚰 Розлив Б/А', '🥤 Стекло/Банка Б/А']: 
@@ -75,7 +75,9 @@ def get_macro_category(cat):
     return cat
 
 def detect_category_granular(name_input, mapping=None):
-    name = str(name_input).strip().lower()
+    # Use the same normalization logic as category save flow
+    # to avoid key mismatches after reboot/resync.
+    name = parsing_service.normalize_name(str(name_input))
     
     # 1. DYNAMIC MAPPING (JSON)
     # Check exact match first
@@ -85,8 +87,9 @@ def detect_category_granular(name_input, mapping=None):
     if mapping:
         if name in mapping:
             return mapping[name]
-        if name_input in mapping:
-            return mapping[name_input]
+        raw_name = str(name_input)
+        if raw_name in mapping:
+            return mapping[raw_name]
     
     # 2. HARDCODED FALLBACK (Removed)
 
