@@ -7,7 +7,7 @@ import ui
 import telegram_utils
 from io import BytesIO
 from datetime import datetime, timedelta
-import data_engine
+from services import data_loader
 from services import parsing_service
 from services import analytics_service
 
@@ -532,8 +532,8 @@ def render_weekdays(df_current, df_prev, current_label="", prev_label=""):
 def render_procurement_v2(df_sales, df_full, period_days):
     st.subheader("📦 Планирование Закупок")
     
-    recipes_map = data_engine.get_recipes_map()
-    stock_df = data_engine.get_stock_data()
+    recipes_map = data_loader.get_recipes_map()
+    stock_df = data_loader.get_stock_data()
     
     if not recipes_map:
         st.warning("⚠️ Не найдены технологические карты (TTK). Загрузите их в папку 'TechnologicalMaps'.")
@@ -654,7 +654,7 @@ def render_procurement_v2(df_sales, df_full, period_days):
     if "Умный" in forecast_method:
         # 2. Helper to get Weekday Profiles (Sales Based) with RECURSION
         # SWITCH: Use History or Sales?
-        df_history = data_engine.get_turnover_history()
+        df_history = data_loader.get_turnover_history()
         use_history = df_history is not None and not df_history.empty
 
         profile_trend = {}

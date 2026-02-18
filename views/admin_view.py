@@ -4,7 +4,7 @@ import auth
 import os
 from services import category_service
 from services import parsing_service
-import data_engine
+
 from datetime import datetime
 
 def _render_misc_tab():
@@ -56,7 +56,7 @@ def _render_misc_tab():
             yd_token = auth.get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
             if yd_token:
                 category_service.sync_to_yandex(yd_token)
-            df_full = data_engine.apply_categories(df_full)
+            df_full = category_service.apply_categories(df_full)
             st.session_state.df_full = df_full
             st.session_state.df_version += 1
             st.session_state.categories_applied_sig = datetime.utcnow().isoformat()

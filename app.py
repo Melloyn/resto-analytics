@@ -3,10 +3,9 @@ import pandas as pd
 import streamlit.components.v1 as components
 import os
 import telegram_utils
-import data_engine
+from services import data_loader, analytics_service, category_service
 import auth
 import ui
-from services import category_service
 from views import admin_view, login_view, reports_view
 from datetime import datetime, timedelta
 
@@ -218,10 +217,10 @@ with st.sidebar:
             else:
                 if st.button("🔄 Скачать и Обновить", type="primary", use_container_width=True):
                     ui.show_loading_overlay("Связываюсь с облаком...")
-                    success, msg = data_engine.download_and_process_yandex(yd_token, st.session_state.yandex_path)
+                    success, msg = data_loader.download_and_process_yandex(yd_token, st.session_state.yandex_path)
                     if success:
                         st.success("Данные обновлены!")
-                        st.session_state.dropped_stats = data_engine.get_last_sync_meta().get(
+                        st.session_state.dropped_stats = data_loader.get_last_sync_meta().get(
                             "dropped_stats",
                             {"count": 0, "cost": 0.0, "items": []},
                         )
@@ -238,24 +237,24 @@ with st.sidebar:
 
     # --- AUTO-LOAD ---
     if st.session_state.df_full is None:
-        if os.path.exists(data_engine.CACHE_FILE):
+        if os.path.exists(data_loader.CACHE_FILE):
              try:
                  meta_ok = False
-                 if os.path.exists(data_engine.SCHEMA_META_FILE):
+                 if os.path.exists(data_loader.SCHEMA_META_FILE):
                      try:
                          import json
-                         with open(data_engine.SCHEMA_META_FILE, "r", encoding="utf-8") as f:
+                         with open(data_loader.SCHEMA_META_FILE, "r", encoding="utf-8") as f:
                              meta = json.load(f)
-                         meta_ok = meta.get("schema_version") == data_engine.SCHEMA_VERSION
+                         meta_ok = meta.get("schema_version") == data_loader.SCHEMA_VERSION
                      except Exception:
                          meta_ok = False
                  if not meta_ok:
                      st.warning("Кэш устарел. Нажмите «Скачать и обновить».")
                  else:
-                     df = pd.read_parquet(data_engine.CACHE_FILE)
+                     df = pd.read_parquet(data_loader.CACHE_FILE)
                      # Always re-apply categories from current mapping,
                      # so category edits survive app/server restarts.
-                     df = data_engine.apply_categories(df)
+                     df = category_service.apply_categories(df)
                      st.session_state.df_full = df
              except Exception as e:
                  st.error(f"Ошибка чтения кэша: {e}")
@@ -372,7 +371,7 @@ if not df_current.empty:
     cur_fc = (cur_cost / cur_rev * 100) if cur_rev else 0
     
     with st.expander("💡 Smart Insights", expanded=True):
-        insights = data_engine.calculate_insights(df_current, df_prev, cur_rev, prev_rev, cur_fc)
+        insights = analytics_service.calculate_insights(df_current, df_prev, cur_rev, prev_rev, cur_fc)
         for i in insights:
             if i['level'] == 'error': st.error(i['message'])
             elif i['level'] == 'warning': st.warning(i['message'])

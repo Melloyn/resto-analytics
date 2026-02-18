@@ -4,7 +4,7 @@ import requests
 from io import BytesIO
 import toml
 import time
-import data_engine
+from services import data_loader
 
 # Load secrets
 try:
@@ -66,7 +66,7 @@ def sync_from_yandex():
         def process_and_collect(file_url, filename, venue):
             try:
                 r = requests.get(file_url, headers=headers, timeout=20)
-                df, err, warns, dropped = data_engine.process_single_file(BytesIO(r.content), filename)
+                df, err, warns, dropped = data_loader.process_single_file(BytesIO(r.content), filename)
                 
                 if dropped:
                     dropped_summary['count'] += dropped['count']

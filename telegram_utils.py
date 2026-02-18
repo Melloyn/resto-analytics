@@ -1,4 +1,4 @@
-import data_engine
+from services import analytics_service, data_loader
 import pandas as pd
 import requests
 
@@ -39,7 +39,7 @@ def format_report(df_full, target_date):
     prev_month_rev = df_prev['Выручка с НДС'].sum()
 
     # --- 3. INSIGHTS ---
-    insights = data_engine.calculate_insights(
+    insights = analytics_service.calculate_insights(
         df_month, df_prev, month_rev, prev_month_rev, month_fc
     )
     
@@ -56,7 +56,7 @@ def format_report(df_full, target_date):
     except:
         top_dish_day = "-"
 
-    month_name = data_engine.RUS_MONTH_NAMES.get(latest_date.month, str(latest_date.month))
+    month_name = data_loader.get_rus_month_name(latest_date.month)
     
     report = f"""
 📊 **Отчет: Бар МЕСТО**
