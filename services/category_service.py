@@ -89,12 +89,10 @@ def sync_from_yandex(token: str, remote_path: str = YANDEX_MAPPING_PATH) -> bool
 
                 local_data = load_categories()
                 
-                # Update remote with local data to preserve un-synced changes
-                # But we want to keep new keys from remote that are NOT in local?
-                # Actually, standard update: existing keys in local override remote.
-                # New keys in remote are kept.
-                merged = remote_data.copy()
-                merged.update(local_data)
+                # Merge logic: Local (base) + Remote (updates). 
+                # Remote entries MUST overwrite local ones to ensure we get the latest state from cloud.
+                merged = local_data.copy()
+                merged.update(remote_data)
                 
                 with open(MAPPING_FILE, 'w', encoding='utf-8') as f:
                     json.dump(merged, f, ensure_ascii=False, indent=4)
