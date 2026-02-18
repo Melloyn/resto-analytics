@@ -43,6 +43,10 @@ if 'edit_yandex_path' not in st.session_state:
     st.session_state.edit_yandex_path = False
 if 'admin_fullscreen' not in st.session_state:
     st.session_state.admin_fullscreen = False
+if 'admin_fullscreen_tab' not in st.session_state:
+    st.session_state.admin_fullscreen_tab = None
+if 'categories_synced' not in st.session_state:
+    st.session_state.categories_synced = False
 
 def clear_browser_auth_token():
     components.html(
@@ -109,13 +113,21 @@ if st.session_state.auth_user is not None:
         
     st.session_state.is_admin = st.session_state.auth_user.get("role") == "admin"
 
+# --- AUTO SYNC CATEGORIES FROM YANDEX ---
+if not st.session_state.categories_synced:
+    yd_token = auth.get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
+    if yd_token:
+        category_service.sync_from_yandex(yd_token)
+    st.session_state.categories_synced = True
+
 # === ГЛАВНЫЙ ИНТЕРФЕЙС ===
 if st.session_state.is_admin and st.session_state.admin_fullscreen:
     st.title("⚙️ Администрирование")
     if st.button("← Вернуться к аналитике", type="secondary"):
         st.session_state.admin_fullscreen = False
+        st.session_state.admin_fullscreen_tab = None
         st.rerun()
-    admin_view.render_admin_panel(None)
+    admin_view.render_admin_panel(None, default_tab=st.session_state.admin_fullscreen_tab)
     st.stop()
 
 st.title(f"📊 Аналитика: {st.session_state.auth_user['full_name']}")
@@ -148,6 +160,11 @@ with st.sidebar:
         with st.expander("⚙️ Администрирование", expanded=False):
             if st.button("🖥️ Открыть в центре", use_container_width=True):
                 st.session_state.admin_fullscreen = True
+                st.session_state.admin_fullscreen_tab = None
+                st.rerun()
+            if st.button("📦 Прочее в центре", use_container_width=True):
+                st.session_state.admin_fullscreen = True
+                st.session_state.admin_fullscreen_tab = "misc"
                 st.rerun()
             if not st.session_state.admin_fullscreen:
                 admin_view.render_admin_panel(None)

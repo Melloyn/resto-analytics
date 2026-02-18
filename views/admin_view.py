@@ -7,8 +7,70 @@ from services import parsing_service
 import data_engine
 from datetime import datetime
 
-def render_admin_panel(main_loader_slot):
+def _render_misc_tab():
+    st.caption("Позиции с категорией '📦 Прочее'. Здесь можно быстро разнести их по правильным категориям.")
+    df_full = st.session_state.get("df_full")
+    if df_full is None or df_full.empty:
+        st.info("Нет загруженных данных.")
+        return
+    if "Категория" not in df_full.columns or "Блюдо" not in df_full.columns:
+        st.info("В данных нет колонки 'Категория' или 'Блюдо'.")
+        return
+
+    other_df = df_full[df_full["Категория"] == "📦 Прочее"].copy()
+    if other_df.empty:
+        st.success("Позиции 'Прочее' не найдены.")
+        return
+
+    agg = other_df.groupby("Блюдо").agg({
+        "Выручка с НДС": "sum",
+        "Количество": "sum"
+    }).reset_index().sort_values("Выручка с НДС", ascending=False)
+    agg["Новая категория"] = ""
+    all_cats = category_service.get_all_known_categories()
+
+    st.write(f"Найдено позиций: {len(agg)}")
+    edited = st.data_editor(
+        agg,
+        use_container_width=True,
+        height=500,
+        column_config={
+            "Выручка с НДС": st.column_config.NumberColumn(format="%.0f ₽"),
+            "Количество": st.column_config.NumberColumn(format="%.0f"),
+            "Новая категория": st.column_config.SelectboxColumn(
+                options=all_cats,
+                required=False
+            ),
+        }
+    )
+
+    if st.button("💾 Сохранить назначения", type="primary"):
+        updates = {}
+        for _, row in edited.iterrows():
+            new_cat = str(row.get("Новая категория") or "").strip()
+            dish = str(row.get("Блюдо") or "").strip()
+            if dish and new_cat:
+                updates[parsing_service.normalize_name(dish)] = new_cat
+        if updates:
+            category_service.save_categories(updates)
+            yd_token = auth.get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
+            if yd_token:
+                category_service.sync_to_yandex(yd_token)
+            df_full = data_engine.apply_categories(df_full)
+            st.session_state.df_full = df_full
+            st.session_state.df_version += 1
+            st.session_state.categories_applied_sig = datetime.utcnow().isoformat()
+            st.success(f"Обновлено категорий: {len(updates)}")
+            st.rerun()
+        else:
+            st.info("Нет выбранных назначений.")
+
+def render_admin_panel(main_loader_slot, default_tab=None):
     st.header("⚙️ Панель Администратора")
+
+    if default_tab == "misc":
+        _render_misc_tab()
+        return
     
     tab_users, tab_cats, tab_misc, tab_debug = st.tabs(["👥 Пользователи", "🏷 Категории", "📦 Прочее", "🐞 Debug"])
 
@@ -90,6 +152,9 @@ def render_admin_panel(main_loader_slot):
                 if new_item.strip():
                     new_item = new_item.strip().lower() # Normalize key
                     category_service.save_categories({new_item: new_cat})
+                    yd_token = auth.get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
+                    if yd_token:
+                        category_service.sync_to_yandex(yd_token)
                     st.success(f"Сохранено: {new_item} -> {new_cat}")
                     st.rerun()
         
@@ -112,6 +177,9 @@ def render_admin_panel(main_loader_slot):
                 if to_delete in current_map:
                     del current_map[to_delete]
                     category_service.save_categories_full(current_map)
+                    yd_token = auth.get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
+                    if yd_token:
+                        category_service.sync_to_yandex(yd_token)
                     st.success(f"Удалено: {to_delete}")
                     st.rerun()
                 else:
@@ -119,57 +187,7 @@ def render_admin_panel(main_loader_slot):
 
     # --- TAB 3: MISC / OTHER ---
     with tab_misc:
-        st.caption("Позиции с категорией '📦 Прочее'. Здесь можно быстро разнести их по правильным категориям.")
-        df_full = st.session_state.get("df_full")
-        if df_full is None or df_full.empty:
-            st.info("Нет загруженных данных.")
-        elif "Категория" not in df_full.columns or "Блюдо" not in df_full.columns:
-            st.info("В данных нет колонки 'Категория' или 'Блюдо'.")
-        else:
-            other_df = df_full[df_full["Категория"] == "📦 Прочее"].copy()
-            if other_df.empty:
-                st.success("Позиции 'Прочее' не найдены.")
-            else:
-                agg = other_df.groupby("Блюдо").agg({
-                    "Выручка с НДС": "sum",
-                    "Количество": "sum"
-                }).reset_index().sort_values("Выручка с НДС", ascending=False)
-                agg["Новая категория"] = ""
-                all_cats = category_service.get_all_known_categories()
-
-                st.write(f"Найдено позиций: {len(agg)}")
-                edited = st.data_editor(
-                    agg,
-                    use_container_width=True,
-                    height=400,
-                    column_config={
-                        "Выручка с НДС": st.column_config.NumberColumn(format="%.0f ₽"),
-                        "Количество": st.column_config.NumberColumn(format="%.0f"),
-                        "Новая категория": st.column_config.SelectboxColumn(
-                            options=all_cats,
-                            required=False
-                        ),
-                    }
-                )
-
-                if st.button("💾 Сохранить назначения", type="primary"):
-                    updates = {}
-                    for _, row in edited.iterrows():
-                        new_cat = str(row.get("Новая категория") or "").strip()
-                        dish = str(row.get("Блюдо") or "").strip()
-                        if dish and new_cat:
-                            updates[parsing_service.normalize_name(dish)] = new_cat
-                    if updates:
-                        category_service.save_categories(updates)
-                        # Re-apply categories in-memory
-                        df_full = data_engine.apply_categories(df_full)
-                        st.session_state.df_full = df_full
-                        st.session_state.df_version += 1
-                        st.session_state.categories_applied_sig = datetime.utcnow().isoformat() if "datetime" in globals() else "updated"
-                        st.success(f"Обновлено категорий: {len(updates)}")
-                        st.rerun()
-                    else:
-                        st.info("Нет выбранных назначений.")
+        _render_misc_tab()
 
     # --- TAB 4: DEBUG ---
     with tab_debug:
