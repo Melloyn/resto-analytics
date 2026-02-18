@@ -310,9 +310,9 @@ def render_menu(df_current, df_prev, current_label="", prev_label=""):
         )
         fig.update_traces(textposition='inside', textinfo='percent', insidetextorientation='radial')
         fig.update_layout(
-            legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5),
-            title=dict(x=0.5, y=0.95, xanchor="center", yanchor="top"),
-            margin=dict(l=10, r=10, t=70, b=80)
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+            title=dict(x=0.5, y=0.93, xanchor="center", yanchor="top"),
+            margin=dict(l=10, r=10, t=90, b=40)
         )
         st.plotly_chart(ui.update_chart_layout(fig), use_container_width=True)
     with c2:
