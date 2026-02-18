@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import auth
 import os
+import requests
 from services import category_service
 from services import parsing_service
 
@@ -201,9 +202,47 @@ def render_admin_panel(main_loader_slot, default_tab=None):
                 items_df = items_df.sort_values(by='Себестоимость', ascending=False).head(50)
                 st.dataframe(items_df, use_container_width=True)
                 
-                # Action to add to categories directly?
                 sel_item = st.selectbox("Добавить в категории:", [""] + items_df['norm_name'].tolist())
                 if sel_item:
                     st.info(f"Перейдите во вкладку 'Категории' и введите: {sel_item}")
         else:
             st.info("Нет отброшенных данных.")
+
+        st.divider()
+        st.write("### ☁️ Debug: Yandex Disk")
+        if st.button("🔍 Показать файлы на Yandex Disk"):
+            yd_token = auth.get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
+            if yd_token:
+                st.write(f"Токен найден: {yd_token[:5]}...")
+                headers = {'Authorization': f'OAuth {yd_token}'}
+                try:
+                    # Check root
+                    st.write("#### Root /RestoAnalytic")
+                    resp = requests.get(
+                        "https://cloud-api.yandex.net/v1/disk/resources",
+                        headers=headers,
+                        params={"path": "RestoAnalytic", "limit": 100}
+                    )
+                    if resp.status_code == 200:
+                        items = resp.json().get("_embedded", {}).get("items", [])
+                        st.json([{"name": i["name"], "type": i["type"]} for i in items])
+                    else:
+                        st.error(f"Error Root: {resp.status_code} {resp.text}")
+                    
+                    # Check config
+                    st.write("#### /RestoAnalytic/config")
+                    resp_conf = requests.get(
+                        "https://cloud-api.yandex.net/v1/disk/resources",
+                        headers=headers,
+                        params={"path": "RestoAnalytic/config", "limit": 100}
+                    )
+                    if resp_conf.status_code == 200:
+                        items = resp_conf.json().get("_embedded", {}).get("items", [])
+                        st.json([{"name": i["name"], "type": i["type"]} for i in items])
+                    else:
+                        st.warning(f"Error Config: {resp_conf.status_code} (Folder might not exist)")
+                        
+                except Exception as e:
+                    st.error(f"Exception: {e}")
+            else:
+                st.error("Нет токена Yandex.")
