@@ -279,9 +279,13 @@ def simulate_forecast(
 
     # 1. Calculate impact per dish based on recipes
     for dish_name, ingredients in recipes_db.items():
+        # Recipe dish names are typically normalized (lowercase) by parsing_service
+        # But we ensure it here just in case
+        norm_dish = str(dish_name).lower().strip()
+        
         impact = 0.0
         for ing in ingredients:
-            ing_name = ing.get('ingredient')
+            ing_name = ing.get('ingredient') # normalized by parsing_service
             qty = ing.get('qty_per_dish', 0)
             
             # check if this ingredient has a price increase
@@ -290,14 +294,19 @@ def simulate_forecast(
                 impact += qty * delta
         
         if impact > 0:
-            dish_impacts[dish_name] = impact
+            dish_impacts[norm_dish] = impact
 
     if not dish_impacts:
         return pd.DataFrame()
 
     # 2. Map impact to existing dishes in DataFrame
-    # Filter only relevant dishes
-    affected_dishes = df_current[df_current['Блюдо'].isin(dish_impacts.keys())].copy()
+    # Create a normalized lookup column for sales data
+    df_work = df_current.copy()
+    df_work['dish_norm'] = df_work['Блюдо'].astype(str).str.lower().str.strip()
+    
+    # Filter only relevant dishes using normalized names
+    affected_mask = df_work['dish_norm'].isin(dish_impacts.keys())
+    affected_dishes = df_work[affected_mask].copy()
     
     if affected_dishes.empty:
         return pd.DataFrame()
@@ -305,14 +314,18 @@ def simulate_forecast(
     results = []
     
     for _, row in affected_dishes.iterrows():
-        dish = row['Блюдо']
+        dish_display = row['Блюдо']
+        dish_norm = row['dish_norm']
+        
         current_cost = row.get('Unit_Cost', 0)
-        impact = dish_impacts.get(dish, 0)
+        # Look up impact using normalized key
+        impact = dish_impacts.get(dish_norm, 0)
+        
         new_cost = current_cost + impact
         qty = row.get('Количество', 0)
         
         results.append({
-            'Блюдо': dish,
+            'Блюдо': dish_display,
             'Текущая с/с': current_cost,
             'Рост с/с': impact,
             'Новая с/с': new_cost,
