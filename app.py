@@ -231,8 +231,20 @@ with st.sidebar:
     if st.session_state.df_full is None:
         if os.path.exists(data_engine.CACHE_FILE):
              try:
-                 df = pd.read_parquet(data_engine.CACHE_FILE)
-                 st.session_state.df_full = df
+                 meta_ok = False
+                 if os.path.exists(data_engine.SCHEMA_META_FILE):
+                     try:
+                         import json
+                         with open(data_engine.SCHEMA_META_FILE, "r", encoding="utf-8") as f:
+                             meta = json.load(f)
+                         meta_ok = meta.get("schema_version") == data_engine.SCHEMA_VERSION
+                     except Exception:
+                         meta_ok = False
+                 if not meta_ok:
+                     st.warning("Кэш устарел. Нажмите «Скачать и обновить».")
+                 else:
+                     df = pd.read_parquet(data_engine.CACHE_FILE)
+                     st.session_state.df_full = df
              except Exception as e:
                  st.error(f"Ошибка чтения кэша: {e}")
     

@@ -3,6 +3,7 @@ import numpy as np
 import re
 import os
 import requests
+import json
 from io import BytesIO
 from datetime import datetime
 
@@ -30,6 +31,8 @@ RUS_MONTH_NAMES = {
 }
 
 CACHE_FILE = "data_cache.parquet"
+SCHEMA_VERSION = "2026-02-18"
+SCHEMA_META_FILE = "data_cache_meta.json"
 LAST_SYNC_META = {
     "dropped_stats": {"count": 0, "cost": 0.0, "items": []},
     "warnings": [],
@@ -530,6 +533,9 @@ def download_and_process_yandex(yandex_token, yandex_path="RestoAnalytic"):
                 full_df["Дата_Отчета"] = pd.to_datetime(full_df["Дата_Отчета"], errors="coerce")
                 full_df = full_df.dropna(subset=["Дата_Отчета"]).sort_values("Дата_Отчета")
             full_df.to_parquet(CACHE_FILE, index=False)
+            # Write schema meta
+            with open(SCHEMA_META_FILE, "w", encoding="utf-8") as f:
+                json.dump({"schema_version": SCHEMA_VERSION}, f)
         else:
             # If no sales data but we have other data, we strictly shouldn't fail broadly
             # But specific to existing logic, cache file might be needed
