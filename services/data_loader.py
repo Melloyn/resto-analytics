@@ -391,3 +391,6 @@ def download_and_process_yandex(yandex_token: str, yandex_path: str = "RestoAnal
     except Exception as exc:
         LAST_SYNC_META["warnings"] = [str(exc)]
         return False, f"Ошибка синхронизации: {exc}"
+
+def get_recipes_map() -> Dict[str, List[Dict[str, Any]]]:
+    return _RECIPES_DB

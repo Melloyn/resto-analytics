@@ -244,3 +244,79 @@ def compute_simulation(df: pd.DataFrame, cats: List[str], d_price: float, d_cost
         'old_profitability': (base_margin / base_rev * 100) if base_rev else 0,
         'new_profitability': (sim_margin / sim_rev * 100) if sim_rev else 0
     }
+
+def get_unique_ingredients(recipes_db: Dict[str, List[Dict[str, Any]]]) -> List[str]:
+    """
+    Extracts a sorted list of unique ingredient names from the recipes database.
+    """
+    ingredients = set()
+    for dish_ingredients in recipes_db.values():
+        for ing in dish_ingredients:
+            if ing.get('ingredient'):
+                ingredients.add(ing['ingredient'])
+    return sorted(list(ingredients))
+
+def simulate_forecast(
+    recipes_db: Dict[str, List[Dict[str, Any]]],
+    ingredient_deltas: Dict[str, float],
+    df_current: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    Calculates the impact of ingredient price changes on dish unit costs.
+    
+    Args:
+        recipes_db: Dictionary of recipes {dish_name: [{'ingredient': name, 'qty_per_dish': qty}, ...]}
+        ingredient_deltas: Dictionary of price increases per unit {ingredient_name: price_increase_rub}
+        df_current: DataFrame containing current dish data (must have 'Блюдо', 'Unit_Cost', 'Количество')
+        
+    Returns:
+        DataFrame with columns: ['Блюдо', 'Текущая с/с', 'Рост с/с', 'Новая с/с', 'Количество']
+    """
+    if not recipes_db or not ingredient_deltas or df_current.empty:
+        return pd.DataFrame()
+
+    dish_impacts = {}
+
+    # 1. Calculate impact per dish based on recipes
+    for dish_name, ingredients in recipes_db.items():
+        impact = 0.0
+        for ing in ingredients:
+            ing_name = ing.get('ingredient')
+            qty = ing.get('qty_per_dish', 0)
+            
+            # check if this ingredient has a price increase
+            if ing_name in ingredient_deltas:
+                delta = ingredient_deltas[ing_name]
+                impact += qty * delta
+        
+        if impact > 0:
+            dish_impacts[dish_name] = impact
+
+    if not dish_impacts:
+        return pd.DataFrame()
+
+    # 2. Map impact to existing dishes in DataFrame
+    # Filter only relevant dishes
+    affected_dishes = df_current[df_current['Блюдо'].isin(dish_impacts.keys())].copy()
+    
+    if affected_dishes.empty:
+        return pd.DataFrame()
+        
+    results = []
+    
+    for _, row in affected_dishes.iterrows():
+        dish = row['Блюдо']
+        current_cost = row.get('Unit_Cost', 0)
+        impact = dish_impacts.get(dish, 0)
+        new_cost = current_cost + impact
+        qty = row.get('Количество', 0)
+        
+        results.append({
+            'Блюдо': dish,
+            'Текущая с/с': current_cost,
+            'Рост с/с': impact,
+            'Новая с/с': new_cost,
+            'Количество': qty
+        })
+        
+    return pd.DataFrame(results)

@@ -434,33 +434,71 @@ def render_abc(df_current):
         )
 
 def render_simulator(df_current, df_full):
-    st.subheader("🔮 Симулятор: Анализ 'Что если?'")
+    st.header("🧪 Симулятор роста цен (Ингредиенты)")
+    st.info("Выберите ингредиенты, укажите рост цены (в рублях за единицу), и увидите, как это повлияет на себестоимость блюд.")
     
-    c_in, c_res = st.columns([1, 2])
-    with c_in:
-        all_cats = sorted(df_full['Категория'].dropna().unique())
-        sel_cats = st.multiselect("Категории:", all_cats, default=all_cats[:3] if len(all_cats)>3 else all_cats)
-        
-        st.markdown("---")
-        d_price = st.slider("Цена продажи (%)", -50, 50, 0)
-        d_cost = st.slider("Себестоимость (%)", -50, 50, 0)
-        d_vol = st.slider("Объем продаж (%)", -50, 50, 0)
+    recipes_db = data_loader.get_recipes_map()
+    if not recipes_db:
+        st.warning("⚠️ Нет данных о рецептах (ТТК). Загрузите файлы TechnologicalMaps.")
+        return
 
-    with c_res:
-        if sel_cats:
-            res = analytics_service.compute_simulation(df_current, sel_cats, d_price, d_cost, d_vol)
-            if res:
-                k1, k2, k3 = st.columns(3)
-                k1.metric("Новая Выручка", f"{res['sim_revenue']:,.0f} ₽", f"{res['diff_rev']:+,.0f} ₽")
-                k2.metric("Новая Маржа", f"{res['sim_margin']:,.0f} ₽", f"{res['diff_margin']:+,.0f} ₽")
-                k3.metric("Рентабельность", f"{res['new_profitability']:.1f}%", f"{res['new_profitability'] - res['old_profitability']:+.1f}%")
+    all_ingredients = analytics_service.get_unique_ingredients(recipes_db)
+    
+    # UI: Ingredient Selection
+    selected_ingredients = st.multiselect(
+        "Выберите ингредиенты для симуляции:", 
+        options=all_ingredients
+    )
+    
+    if selected_ingredients:
+        st.subheader("Настройка роста цен (₽)")
+        cols = st.columns(3)
+        ingredient_deltas = {}
+        
+        for idx, ing in enumerate(selected_ingredients):
+            with cols[idx % 3]:
+                delta = st.number_input(
+                    f"Рост для '{ing}' (₽):", 
+                    min_value=0.0, 
+                    value=0.0, 
+                    step=1.0, 
+                    key=f"sim_delta_{idx}"
+                )
+                if delta > 0:
+                    ingredient_deltas[ing] = delta
+        
+        if ingredient_deltas:
+            st.divider()
+            if st.button("🚀 Рассчитать влияние", type="primary"):
+                # We use df_current for current costs and layout
+                sim_results = analytics_service.simulate_forecast(recipes_db, ingredient_deltas, df_current)
                 
-                comp_df = pd.DataFrame([
-                    {'Metric': 'Маржа', 'Scenario': 'Было', 'Value': res['base_margin']},
-                    {'Metric': 'Маржа', 'Scenario': 'Стало', 'Value': res['sim_margin']}
-                ])
-                fig = px.bar(comp_df, x='Scenario', y='Value', color='Scenario', title="Сравнение Маржи")
-                st.plotly_chart(ui.update_chart_layout(fig), use_container_width=True)
+                if sim_results.empty:
+                    st.warning("Не найдено блюд, использующих эти ингредиенты (среди текущих продаж).")
+                else:
+                    st.subheader("📊 Результаты симуляции")
+                    
+                    # Totals
+                    total_increase = (sim_results['Рост с/с'] * sim_results['Количество']).sum()
+                    st.metric("Общий рост себестоимости (на текущий объем продаж)", f"{total_increase:,.0f} ₽")
+                    
+                    # Table
+                    st.dataframe(
+                        sim_results.sort_values('Рост с/с', ascending=False),
+                        column_config={
+                            "Блюдо": "Блюдо",
+                            "Текущая с/с": st.column_config.NumberColumn("Текущая с/с", format="%.2f ₽"),
+                            "Рост с/с": st.column_config.NumberColumn("Рост (+)", format="%.2f ₽"),
+                            "Новая с/с": st.column_config.NumberColumn("Новая с/с", format="%.2f ₽"),
+                            "Количество": st.column_config.NumberColumn("Продажи (шт)", format="%d"),
+                        },
+                        hide_index=True,
+                        use_container_width=True
+                    )
+        else:
+            st.info("Укажите рост цены хотя бы для одного ингредиента.")
+    else:
+        st.markdown("Use the multiselect above to add ingredients.")
 
 def render_weekdays(df_current, df_prev, current_label="", prev_label=""):
     daily_cur, weekday_cur = analytics_service.compute_weekday_stats(df_current)

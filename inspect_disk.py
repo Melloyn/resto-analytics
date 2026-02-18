@@ -1,43 +1,30 @@
-import requests
-import toml
 import os
+import requests
 import json
+import auth
 
-def get_token():
-    try:
-        config = toml.load(".streamlit/secrets.toml")
-        return config.get("YANDEX_TOKEN")
-    except Exception as e:
-        print(f"Error reading secrets: {e}")
-        return os.getenv("YANDEX_TOKEN")
-
-def list_files(path):
-    token = get_token()
+def check_yandex_files():
+    token = auth.get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
     if not token:
         print("No token found")
         return
 
     headers = {'Authorization': f'OAuth {token}'}
-    params = {'path': path, 'limit': 100}
-    
     try:
-        resp = requests.get("https://cloud-api.yandex.net/v1/disk/resources", headers=headers, params=params)
-        if resp.status_code != 200:
-            print(f"Error {resp.status_code}: {resp.text}")
-            return
-
-        data = resp.json()
-        print(f"📂 Contents of '{path}':")
-        if '_embedded' in data:
-            items = data['_embedded']['items']
-            for item in items:
-                type_icon = "📁" if item['type'] == 'dir' else "📄"
-                print(f"{type_icon} {item['name']} (Size: {item.get('size', 0)}, Created: {item.get('created')})")
+        resp = requests.get(
+            "https://cloud-api.yandex.net/v1/disk/resources",
+            headers=headers,
+            params={"path": "RestoAnalytic", "limit": 100}
+        )
+        if resp.status_code == 200:
+            items = resp.json().get("_embedded", {}).get("items", [])
+            print("Files in RestoAnalytic:")
+            for i in items:
+                print(f"- {i['name']} ({i['type']})")
         else:
-            print("Empty or not a directory")
-
+            print(f"Error: {resp.status_code} {resp.text}")
     except Exception as e:
-        print(f"Request failed: {e}")
+        print(f"Exception: {e}")
 
 if __name__ == "__main__":
-    list_files("RestoAnalytic")
+    check_yandex_files()
