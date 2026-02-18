@@ -9,147 +9,9 @@ from io import BytesIO
 from datetime import datetime, timedelta
 import data_engine
 from services import parsing_service
+from services import analytics_service
 
 logger = logging.getLogger(__name__)
-
-# --- COMPUTATION HELPERS (Moved from app.py) ---
-def compute_inflation_metrics(df_scope, df_v):
-    if df_scope.empty or df_v.empty: return 0, 0, pd.DataFrame()
-    last_prices = df_scope.sort_values('Дата_Отчета').groupby('Блюдо')['Unit_Cost'].last()
-    current_prices = df_v.groupby('Блюдо')['Unit_Cost'].mean()
-    
-    merged = pd.concat([last_prices, current_prices], axis=1, keys=['Old', 'New']).dropna()
-    merged['Diff'] = merged['New'] - merged['Old']
-    merged['Pct'] = (merged['Diff'] / merged['Old']) * 100
-    
-    qty_map = df_v.groupby('Блюдо')['Количество'].sum()
-    merged['Qty'] = qty_map
-    merged['Effect'] = merged['Diff'] * merged['Qty']
-    
-    loss = merged[merged['Effect'] > 0]['Effect'].sum()
-    save = abs(merged[merged['Effect'] < 0]['Effect'].sum())
-    
-    detail = merged[merged['Effect'] != 0].copy()
-    detail['Товар'] = detail.index
-    detail['Рост %'] = detail['Pct']
-    detail['Эффект (₽)'] = detail['Effect']
-    return loss, save, detail
-
-def compute_supplier_stats(df):
-    if 'Поставщик' not in df.columns or df.empty: return pd.DataFrame()
-    return df.groupby('Поставщик')['Себестоимость'].sum().reset_index().sort_values('Себестоимость', ascending=False).head(15)
-
-def compute_menu_tab_data(df, group_col):
-    if df.empty: return pd.DataFrame(), pd.DataFrame()
-    cat_df = df.groupby(group_col)['Выручка с НДС'].sum().reset_index().sort_values(by='Выручка с НДС', ascending=False)
-    
-    menu_df = df.groupby('Блюдо').agg({
-        'Выручка с НДС': 'sum',
-        'Себестоимость': 'sum',
-        'Количество': 'sum'
-    }).reset_index()
-    menu_df['Фудкост %'] = (menu_df['Себестоимость'] / menu_df['Выручка с НДС'] * 100).fillna(0)
-    menu_df = menu_df.sort_values('Выручка с НДС', ascending=False)
-    return cat_df, menu_df
-
-def compute_abc_data(df):
-    if df.empty: return pd.DataFrame(), 0, 0
-    abc = df.groupby('Блюдо').agg({
-        'Выручка с НДС': 'sum',
-        'Количество': 'sum', 
-        'Себестоимость': 'sum'
-    }).reset_index()
-    abc['Margin'] = abc['Выручка с НДС'] - abc['Себестоимость']
-    abc['Unit_Margin'] = abc['Margin'] / abc['Количество']
-    
-    avg_qty = abc['Количество'].mean()
-    avg_margin = abc['Unit_Margin'].mean()
-    
-    def classify(row):
-        high_vol = row['Количество'] >= avg_qty
-        high_prof = row['Unit_Margin'] >= avg_margin
-        if high_vol and high_prof: return "⭐ Звезда"
-        if high_vol and not high_prof: return "🐎 Лошадка"
-        if not high_vol and high_prof: return "❓ Загадка"
-        return "🐶 Собака"
-
-    abc['Класс'] = abc.apply(classify, axis=1)
-    return abc, avg_qty, avg_margin
-
-def compute_weekday_stats(df):
-    if df.empty: return pd.DataFrame(), pd.DataFrame()
-
-    ru_days = {
-        0: 'Понедельник', 1: 'Вторник', 2: 'Среда', 3: 'Четверг',
-        4: 'Пятница', 5: 'Суббота', 6: 'Воскресенье'
-    }
-
-    # Daily dynamic
-    daily = df.groupby('Дата_Отчета')['Выручка с НДС'].sum().reset_index()
-    daily['ДеньРус'] = daily['Дата_Отчета'].dt.weekday.map(ru_days)
-    daily['Дата_Подпись'] = daily['Дата_Отчета'].dt.strftime('%d.%m')
-    
-    # Weekday average
-    dates_per_weekday = df[['Дата_Отчета']].drop_duplicates()
-    dates_per_weekday['Day'] = dates_per_weekday['Дата_Отчета'].dt.weekday.map(ru_days)
-    counts = dates_per_weekday['Day'].value_counts()
-    
-    sums = df.groupby(df['Дата_Отчета'].dt.weekday.map(ru_days))['Выручка с НДС'].sum()
-    avgs = (sums / counts).rename('Выручка с НДС').rename_axis('ДеньРус').reset_index()
-    
-    days_order = {
-        'Понедельник': 0, 'Вторник': 1, 'Среда': 2, 'Четверг': 3,
-        'Пятница': 4, 'Суббота': 5, 'Воскресенье': 6
-    }
-    avgs['SortKey'] = avgs['ДеньРус'].map(days_order)
-    avgs = avgs.sort_values('SortKey').drop(columns=['SortKey'])
-    
-    return daily, avgs
-
-def compute_purchase_plan(df, days, safety):
-    if df.empty: return pd.DataFrame(columns=['Budget'])
-    end_dt = df['Дата_Отчета'].max()
-    start_dt = end_dt - timedelta(days=30)
-    recent = df[df['Дата_Отчета'] >= start_dt]
-    
-    daily_usage = recent.groupby('Блюдо')['Количество'].sum() / 30
-    last_cost = recent.sort_values('Дата_Отчета').groupby('Блюдо')['Unit_Cost'].last()
-    
-    plan = pd.DataFrame({'Daily_Use': daily_usage, 'Unit_Cost': last_cost}).dropna()
-    plan['Need_Qty'] = plan['Daily_Use'] * days * (1 + safety/100)
-    plan['Budget'] = plan['Need_Qty'] * plan['Unit_Cost']
-    
-    return plan.sort_values('Budget', ascending=False).reset_index()
-
-def compute_simulation(df, cats, d_price, d_cost, d_vol):
-    if df.empty: return None
-    mask = df['Категория'].isin(cats)
-    target = df[mask].copy()
-    other = df[~mask].copy()
-    
-    # Base
-    base_rev = df['Выручка с НДС'].sum()
-    base_cost = df['Себестоимость'].sum()
-    base_margin = base_rev - base_cost
-    
-    # Sim
-    sim_rev_target = target['Выручка с НДС'].sum() * (1 + d_price/100) * (1 + d_vol/100)
-    sim_cost_target = target['Себестоимость'].sum() * (1 + d_cost/100) * (1 + d_vol/100)
-    
-    sim_rev = other['Выручка с НДС'].sum() + sim_rev_target
-    sim_cost = other['Себестоимость'].sum() + sim_cost_target
-    sim_margin = sim_rev - sim_cost
-    
-    return {
-        'base_revenue': base_rev,
-        'base_margin': base_margin,
-        'sim_revenue': sim_rev,
-        'sim_margin': sim_margin,
-        'diff_rev': sim_rev - base_rev,
-        'diff_margin': sim_margin - base_margin,
-        'old_profitability': (base_margin / base_rev * 100) if base_rev else 0,
-        'new_profitability': (sim_margin / sim_rev * 100) if sim_rev else 0
-    }
 
 # --- EXCEL EXPORT ---
 @st.cache_data
@@ -385,7 +247,7 @@ def render_inflation(df_full, df_current, target_date, inflation_start_date=None
             det['Рост %'] = det['Pct']
             det['Эффект (₽)'] = det['Effect']
     else:
-        loss, save, det = compute_inflation_metrics(df_full[df_full['Дата_Отчета'] <= target_dt], df_current)
+        loss, save, det = analytics_service.compute_inflation_metrics(df_full[df_full['Дата_Отчета'] <= target_dt], df_current)
     col1, col2, col3 = st.columns(3)
     col1.metric("🔴 Потери", f"-{loss:,.0f} ₽")
     col2.metric("🟢 Экономия", f"+{save:,.0f} ₽")
@@ -413,7 +275,7 @@ def render_dynamics(df_full, df_current):
             st.plotly_chart(ui.update_chart_layout(fig), use_container_width=True)
     with c2:
         st.write("### Топ Поставщиков")
-        stats = compute_supplier_stats(df_current)
+        stats = analytics_service.compute_supplier_stats(df_current)
         if not stats.empty:
             fig = px.bar(stats, x='Себестоимость', y='Поставщик', orientation='h')
             st.plotly_chart(ui.update_chart_layout(fig), use_container_width=True)
@@ -422,7 +284,7 @@ def render_menu(df_current, df_prev, current_label="", prev_label=""):
     view_mode = st.radio("Вид:", ["Макро", "Микро"], horizontal=True, label_visibility="collapsed")
     target_cat = 'Макро_Категория' if view_mode == "Макро" else 'Категория'
     
-    cats, items = compute_menu_tab_data(df_current, target_cat)
+    cats, items = analytics_service.compute_menu_tab_data(df_current, target_cat)
     
     c1, c2 = st.columns([1, 1.5])
     with c1:
@@ -488,7 +350,7 @@ def render_menu(df_current, df_prev, current_label="", prev_label=""):
             st.info("Нет данных для расчета фудкоста.")
 
     if not df_prev.empty:
-        cats_prev, _ = compute_menu_tab_data(df_prev, target_cat)
+        cats_prev, _ = analytics_service.compute_menu_tab_data(df_prev, target_cat)
         cur_cmp = cats.rename(columns={'Выручка с НДС': 'Текущий'})
         prev_cmp = cats_prev.rename(columns={'Выручка с НДС': 'Сравнение'})
         cmp_df = cur_cmp.merge(prev_cmp, on=target_cat, how='outer').fillna(0)
@@ -515,7 +377,7 @@ def render_menu(df_current, df_prev, current_label="", prev_label=""):
         st.plotly_chart(ui.update_chart_layout(fig_cmp), use_container_width=True)
 
 def render_abc(df_current):
-    abc, aq, am = compute_abc_data(df_current)
+    abc, aq, am = analytics_service.compute_abc_data(df_current)
     if abc.empty:
         st.info("Нет данных")
         return
@@ -566,7 +428,7 @@ def render_simulator(df_current, df_full):
 
     with c_res:
         if sel_cats:
-            res = compute_simulation(df_current, sel_cats, d_price, d_cost, d_vol)
+            res = analytics_service.compute_simulation(df_current, sel_cats, d_price, d_cost, d_vol)
             if res:
                 k1, k2, k3 = st.columns(3)
                 k1.metric("Новая Выручка", f"{res['sim_revenue']:,.0f} ₽", f"{res['diff_rev']:+,.0f} ₽")
@@ -581,7 +443,7 @@ def render_simulator(df_current, df_full):
                 st.plotly_chart(ui.update_chart_layout(fig), use_container_width=True)
 
 def render_weekdays(df_current, df_prev, current_label="", prev_label=""):
-    daily_cur, weekday_cur = compute_weekday_stats(df_current)
+    daily_cur, weekday_cur = analytics_service.compute_weekday_stats(df_current)
     if weekday_cur.empty:
         st.info("Нет данных для анализа дней недели.")
         return
@@ -589,7 +451,7 @@ def render_weekdays(df_current, df_prev, current_label="", prev_label=""):
     c1, c2 = st.columns(2)
     with c1:
         if not df_prev.empty:
-            _, weekday_prev = compute_weekday_stats(df_prev)
+            _, weekday_prev = analytics_service.compute_weekday_stats(df_prev)
             cur_cmp = weekday_cur.rename(columns={'Выручка с НДС': 'Текущий'})
             prev_cmp = weekday_prev.rename(columns={'Выручка с НДС': 'Сравнение'})
             cmp_df = cur_cmp.merge(prev_cmp, on='ДеньРус', how='outer').fillna(0)
@@ -631,7 +493,7 @@ def render_weekdays(df_current, df_prev, current_label="", prev_label=""):
         ))
 
         if not df_prev.empty:
-            daily_prev, _ = compute_weekday_stats(df_prev)
+            daily_prev, _ = analytics_service.compute_weekday_stats(df_prev)
             daily_prev = daily_prev.sort_values('Дата_Отчета').copy()
             daily_prev['ИндексДня'] = range(1, len(daily_prev) + 1)
             fig_daily.add_trace(go.Scatter(
