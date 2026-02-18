@@ -4,10 +4,12 @@ import hmac
 import secrets
 import os
 import streamlit as st
+import requests
 from datetime import datetime, timedelta
 import base64
 
 USERS_DB = "users.db"
+YANDEX_USERS_PATH = "RestoAnalytic/config/users.db"
 PASSWORD_ITERATIONS = 200_000
 SESSION_TTL_DAYS = 30
 
@@ -19,6 +21,48 @@ def get_secret(key):
 
 def _db_conn():
     return sqlite3.connect(USERS_DB)
+
+def sync_users_from_yandex(token, remote_path=YANDEX_USERS_PATH):
+    if not token:
+        return False
+    headers = {'Authorization': f'OAuth {token}'}
+    try:
+        resp = requests.get(
+            "https://cloud-api.yandex.net/v1/disk/resources/download",
+            headers=headers,
+            params={'path': remote_path},
+            timeout=5
+        )
+        if resp.status_code == 200:
+            href = resp.json().get("href")
+            dl = requests.get(href)
+            if dl.status_code == 200:
+                with open(USERS_DB, 'wb') as f:
+                    f.write(dl.content)
+                return True
+    except Exception:
+        return False
+    return False
+
+def sync_users_to_yandex(token, remote_path=YANDEX_USERS_PATH):
+    if not token or not os.path.exists(USERS_DB):
+        return False
+    headers = {'Authorization': f'OAuth {token}'}
+    try:
+        resp = requests.get(
+            "https://cloud-api.yandex.net/v1/disk/resources/upload",
+            headers=headers,
+            params={'path': remote_path, 'overwrite': 'true'},
+            timeout=5
+        )
+        if resp.status_code == 200:
+            href = resp.json().get("href")
+            with open(USERS_DB, 'rb') as f:
+                up = requests.put(href, files={'file': f})
+                return up.status_code in [201, 202]
+    except Exception:
+        return False
+    return False
 
 @st.cache_resource
 def get_runtime_sessions():
@@ -116,6 +160,9 @@ def create_user(full_name, login, email, phone, password, role="user", status="p
             (full_name, login, email, phone, salt_hex, pw_hash, role, status, created_at),
         )
         conn.commit()
+    token = get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
+    if token:
+        sync_users_to_yandex(token)
 
 def authenticate_user(login, password):
     with _db_conn() as conn:
@@ -262,11 +309,17 @@ def update_user_status(user_id, status):
     with _db_conn() as conn:
         conn.execute("UPDATE users SET status = ? WHERE id = ?", (status, user_id))
         conn.commit()
+    token = get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
+    if token:
+        sync_users_to_yandex(token)
 
 def update_user_role(user_id, role):
     with _db_conn() as conn:
         conn.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
         conn.commit()
+    token = get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
+    if token:
+        sync_users_to_yandex(token)
 
 def bootstrap_admin():
     admin_login = get_secret("ADMIN_LOGIN") or os.getenv("ADMIN_LOGIN")
