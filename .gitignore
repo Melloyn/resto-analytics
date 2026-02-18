@@ -22,5 +22,6 @@ venv.bak/
 
 # OS / local runtime artifacts
 .DS_Store
+.pycache/
 users.db
 data_cache.parquet

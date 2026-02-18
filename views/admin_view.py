@@ -162,13 +162,7 @@ def render_admin_panel(main_loader_slot):
                     if updates:
                         category_service.save_categories(updates)
                         # Re-apply categories in-memory
-                        cat_mapping = category_service.load_categories()
-                        df_full["Категория"] = df_full["Блюдо"].apply(
-                            lambda x: data_engine.detect_category_granular(x, cat_mapping)
-                        )
-                        df_full["Макро_Категория"] = df_full["Категория"].apply(
-                            data_engine.get_macro_category
-                        )
+                        df_full = data_engine.apply_categories(df_full)
                         st.session_state.df_full = df_full
                         st.session_state.df_version += 1
                         st.session_state.categories_applied_sig = datetime.utcnow().isoformat() if "datetime" in globals() else "updated"
