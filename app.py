@@ -253,6 +253,9 @@ with st.sidebar:
                      st.warning("Кэш устарел. Нажмите «Скачать и обновить».")
                  else:
                      df = pd.read_parquet(data_engine.CACHE_FILE)
+                     # Always re-apply categories from current mapping,
+                     # so category edits survive app/server restarts.
+                     df = data_engine.apply_categories(df)
                      st.session_state.df_full = df
              except Exception as e:
                  st.error(f"Ошибка чтения кэша: {e}")
