@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional, Union
 from services import parsing_service
 
 MAPPING_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "categories.json")
-YANDEX_MAPPING_PATH = "RestoAnalytic/config/categories.json"
+YANDEX_MAPPING_PATH = "RestoAnalytic/categories.json"
 
 DEFAULT_CATEGORIES = [
     "🍔 Еда (Кухня)", "🍹 Коктейли", "☕ Кофе", "🍵 Чай", "🍺 Пиво Розлив", "💧 Водка",
