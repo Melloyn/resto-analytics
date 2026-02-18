@@ -6,6 +6,7 @@ import telegram_utils
 import data_engine
 import auth
 import ui
+from services import category_service
 from views import admin_view, login_view, reports_view
 from datetime import datetime, timedelta
 
