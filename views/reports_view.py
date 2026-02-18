@@ -317,6 +317,14 @@ def render_menu(df_current, df_prev, current_label="", prev_label=""):
         st.plotly_chart(ui.update_chart_layout(fig), use_container_width=True)
     with c2:
         if not df_current.empty:
+            with st.expander("🔍 Фильтр таблицы фудкоста", expanded=False):
+                c_f1, c_f2 = st.columns(2)
+                with c_f1:
+                    min_rev = st.number_input("Мин. выручка (₽)", min_value=0, value=0, step=1000)
+                    min_qty = st.number_input("Мин. кол-во", min_value=0, value=0, step=10)
+                with c_f2:
+                    top_n = st.slider("Показать топ N по выручке", 10, 300, 150)
+
             period_sorted = df_current.sort_values('Дата_Отчета')
             cost_start = period_sorted.groupby('Блюдо')['Unit_Cost'].first()
             cost_end = period_sorted.groupby('Блюдо')['Unit_Cost'].last()
@@ -326,6 +334,7 @@ def render_menu(df_current, df_prev, current_label="", prev_label=""):
                 'Количество': 'sum'
             })
             agg['Факт фудкост %'] = (agg['Себестоимость'] / agg['Выручка с НДС'] * 100).fillna(0)
+            agg = agg[(agg['Выручка с НДС'] >= min_rev) & (agg['Количество'] >= min_qty)]
             df_fc = pd.DataFrame({
                 'Блюдо': agg.index,
                 'С/С начало периода': cost_start,
@@ -334,7 +343,7 @@ def render_menu(df_current, df_prev, current_label="", prev_label=""):
                 'Выручка с НДС': agg['Выручка с НДС'],
                 'Кол-во продано': agg['Количество']
             }).reset_index(drop=True)
-            df_fc = df_fc.sort_values('Факт фудкост %', ascending=False)
+            df_fc = df_fc.sort_values('Выручка с НДС', ascending=False).head(top_n)
             st.dataframe(
                 df_fc,
                 column_config={
@@ -394,6 +403,14 @@ def render_abc(df_current):
     st.plotly_chart(ui.update_chart_layout(fig), use_container_width=True)
 
     with st.expander("📋 Таблица ABC", expanded=False):
+        with st.container():
+            c_a1, c_a2 = st.columns(2)
+            with c_a1:
+                abc_min_rev = st.number_input("Мин. выручка (₽) ", min_value=0, value=0, step=1000, key="abc_min_rev")
+                abc_min_qty = st.number_input("Мин. кол-во ", min_value=0, value=0, step=10, key="abc_min_qty")
+            with c_a2:
+                abc_top_n = st.slider("Показать топ N по выручке ", 10, 300, 150, key="abc_top_n")
+
         abc_view = abc.rename(columns={
             "Блюдо": "Блюдо",
             "Выручка с НДС": "Выручка",
@@ -402,6 +419,8 @@ def render_abc(df_current):
             "Unit_Margin": "Маржа/шт",
             "Класс": "Класс"
         })
+        abc_view = abc_view[(abc_view["Выручка"] >= abc_min_rev) & (abc_view["Кол-во"] >= abc_min_qty)]
+        abc_view = abc_view.sort_values("Выручка", ascending=False).head(abc_top_n)
         st.dataframe(
             abc_view[["Блюдо", "Класс", "Выручка", "С/С", "Кол-во", "Маржа/шт"]],
             column_config={
