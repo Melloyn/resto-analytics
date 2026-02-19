@@ -589,6 +589,9 @@ def render_weekdays(df_current, df_prev, current_label="", prev_label=""):
 def render_procurement_v2(df_sales, df_full, period_days):
     st.subheader("📦 План Закупок (Smart)")
 
+    recipes_map = data_loader.get_recipes_map()
+    stock_df = data_loader.get_stock_data()
+
     # --- DEBUG SECTION START ---
     with st.expander("🕵️ Диагностика Белого Списка (Что есть в Товарообороте?)"):
         st.write(f"Всего позиций в Товарообороте: {len(stock_df) if stock_df is not None else 0}")
@@ -600,9 +603,6 @@ def render_procurement_v2(df_sales, df_full, period_days):
             else:
                 st.dataframe(stock_df[['ingredient', 'unit', 'stock_qty']].head(10))
     # --- DEBUG SECTION END ---
-    
-    recipes_map = data_loader.get_recipes_map()
-    stock_df = data_loader.get_stock_data()
     
     if not recipes_map:
         st.warning("⚠️ Не найдены технологические карты (TTK). Загрузите их в папку 'TechnologicalMaps'.")
