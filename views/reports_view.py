@@ -305,16 +305,32 @@ def render_menu(df_current, df_prev, current_label="", prev_label=""):
             cats_sorted,
             values='Выручка с НДС',
             names=target_cat,
-            hole=0.55,
+            hole=0.6,
             title="Структура выручки"
         )
-        fig.update_traces(textposition='inside', textinfo='percent', insidetextorientation='radial')
-        fig.update_layout(
-            legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5),
-            title=dict(x=0.5, y=0.97, xanchor="center", yanchor="top"),
-            margin=dict(l=10, r=10, t=60, b=120)
+        # Apply global theme first
+        fig = ui.update_chart_layout(fig)
+        
+        # Then override for specific pie chart needs
+        fig.update_traces(
+            textposition='outside', 
+            textinfo='percent+label', 
+            pull=[0.05] + [0] * (len(cats_sorted)-1)
         )
-        st.plotly_chart(ui.update_chart_layout(fig), use_container_width=True)
+        fig.update_layout(
+            legend=dict(
+                orientation="h", 
+                yanchor="bottom", 
+                y=-0.3, 
+                xanchor="center", 
+                x=0.5,
+                itemwidth=70
+            ),
+            title=dict(x=0.5, y=0.98, xanchor="center", yanchor="top"),
+            margin=dict(l=20, r=20, t=80, b=100),
+            showlegend=True
+        )
+        st.plotly_chart(fig, use_container_width=True)
     with c2:
         if not df_current.empty:
             with st.expander("🔍 Фильтр таблицы фудкоста", expanded=False):
