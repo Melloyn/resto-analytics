@@ -592,17 +592,23 @@ def render_procurement_v2(df_sales, df_full, period_days):
     recipes_map = data_loader.get_recipes_map()
     stock_df = data_loader.get_stock_data()
 
-    # --- DEBUG SECTION START ---
-    with st.expander("🕵️ Диагностика Белого Списка (Что есть в Товарообороте?)"):
-        st.write(f"Всего позиций в Товарообороте: {len(stock_df) if stock_df is not None else 0}")
-        if stock_df is not None:
-            search_term = st.text_input("Поиск по Товарообороту:", value="рислинг")
-            if search_term:
-                debug_hits = stock_df[stock_df['ingredient'].str.contains(search_term, case=False, na=False)]
-                st.dataframe(debug_hits[['ingredient', 'unit', 'stock_qty']])
-            else:
-                st.dataframe(stock_df[['ingredient', 'unit', 'stock_qty']].head(10))
-    # --- DEBUG SECTION END ---
+    is_admin = False
+    if st.session_state.get('auth_user') and st.session_state.auth_user.get('role') == 'admin':
+        is_admin = True
+    elif st.session_state.get('is_admin'):
+        is_admin = True
+
+    # --- DEBUG SECTION (ADMIN ONLY) ---
+    if is_admin:
+        with st.expander("🕵️ Диагностика Белого Списка (Что есть в Товарообороте?)"):
+            st.write(f"Всего позиций в Товарообороте: {len(stock_df) if stock_df is not None else 0}")
+            if stock_df is not None:
+                search_term = st.text_input("Поиск по Товарообороту:", value="рислинг")
+                if search_term:
+                    debug_hits = stock_df[stock_df['ingredient'].str.contains(search_term, case=False, na=False)]
+                    st.dataframe(debug_hits[['ingredient', 'unit', 'stock_qty']])
+                else:
+                    st.dataframe(stock_df[['ingredient', 'unit', 'stock_qty']].head(10))
     
     if not recipes_map:
         st.warning("⚠️ Не найдены технологические карты (TTK). Загрузите их в папку 'TechnologicalMaps'.")
@@ -623,61 +629,82 @@ def render_procurement_v2(df_sales, df_full, period_days):
     with c_days:
          target_days = st.slider("На сколько дней закупаем?", 1, 30, 7)
 
-    preset_mode = st.selectbox(
-        "Режим прогноза",
-        ["Авто (рекомендуется)", "Стабильно", "Агрессивно", "Пользовательский"],
-        index=0
-    )
+    # Defaults
+    lead_time = 3
+    trend_window_days = 28
+    ly_window_days = 14
+    sigma_window_days = 56
+    service_level = 95
+    holiday_boost = 20
+    trend_weight = 0.6
+    ly_weight = 0.4
+    use_weekday_yoy = True
+    yoy_cap = 1.5
+    pack_size_default = 0.0
+    min_order_default = 0.0
+    holiday_text = ""
 
-    # Defaults for presets
-    preset_params = {
-        "Авто (рекомендуется)": dict(
-            lead_time=3, trend_window_days=28, ly_window_days=14, sigma_window_days=56,
-            service_level=95, holiday_boost=20, trend_weight=0.6, ly_weight=0.4,
-            use_weekday_yoy=True, yoy_cap=1.5
-        ),
-        "Стабильно": dict(
-            lead_time=3, trend_window_days=42, ly_window_days=21, sigma_window_days=90,
-            service_level=98, holiday_boost=10, trend_weight=0.4, ly_weight=0.6,
-            use_weekday_yoy=True, yoy_cap=1.3
-        ),
-        "Агрессивно": dict(
-            lead_time=2, trend_window_days=21, ly_window_days=10, sigma_window_days=42,
-            service_level=90, holiday_boost=30, trend_weight=0.75, ly_weight=0.25,
-            use_weekday_yoy=True, yoy_cap=1.8
-        ),
-    }
+    preset_mode = "Авто (рекомендуется)"
+    
+    if is_admin:
+        preset_mode = st.selectbox(
+            "Режим прогноза",
+            ["Авто (рекомендуется)", "Стабильно", "Агрессивно", "Пользовательский"],
+            index=0
+        )
 
-    with st.expander("⚙️ Параметры прогноза (расширенные)", expanded=(preset_mode == "Пользовательский")):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            lead_time = st.slider("Lead time (дней)", 0, 21, 3)
-            trend_window_days = st.slider("Окно тренда (дней)", 14, 120, 28)
-        with c2:
-            service_level = st.selectbox("Service level", [80, 90, 95, 98], index=2)
-            holiday_boost = st.slider("Коэф. праздников (%)", 0, 100, 20)
-            ly_window_days = st.slider("Окно прошлого года (±дней)", 7, 45, 14)
-        with c3:
-            trend_weight = st.slider("Вес тренда", 0.0, 1.0, 0.6)
-            ly_weight = st.slider("Вес прошлого года", 0.0, 1.0, 0.4)
-            sigma_window_days = st.slider("Окно волатильности (дней)", 14, 180, 56)
-            pack_size_default = st.number_input("Кратность (упаковка)", 0.0, 10000.0, 0.0)
-            min_order_default = st.number_input("Мин. заказ (MOQ)", 0.0, 10000.0, 0.0)
-            use_weekday_yoy = st.checkbox("Усилить сравнение по дням недели (YoY)", value=True)
-            yoy_cap = st.slider("Ограничение YoY коэффициента", 0.5, 2.0, 1.5)
+        # Defaults for presets
+        preset_params = {
+            "Авто (рекомендуется)": dict(
+                lead_time=3, trend_window_days=28, ly_window_days=14, sigma_window_days=56,
+                service_level=95, holiday_boost=20, trend_weight=0.6, ly_weight=0.4,
+                use_weekday_yoy=True, yoy_cap=1.5
+            ),
+            "Стабильно": dict(
+                lead_time=3, trend_window_days=42, ly_window_days=21, sigma_window_days=90,
+                service_level=98, holiday_boost=10, trend_weight=0.4, ly_weight=0.6,
+                use_weekday_yoy=True, yoy_cap=1.3
+            ),
+            "Агрессивно": dict(
+                lead_time=2, trend_window_days=21, ly_window_days=10, sigma_window_days=42,
+                service_level=90, holiday_boost=30, trend_weight=0.75, ly_weight=0.25,
+                use_weekday_yoy=True, yoy_cap=1.8
+            ),
+        }
 
-        st.caption("Праздники: введите даты в формате `YYYY-MM-DD` или `DD.MM.YYYY`, по одной в строке.")
-        holiday_text = st.text_area("Доп. праздники", value="", height=100)
+        with st.expander("⚙️ Параметры прогноза (расширенные)", expanded=(preset_mode == "Пользовательский")):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                lead_time = st.slider("Lead time (дней)", 0, 21, 3)
+                trend_window_days = st.slider("Окно тренда (дней)", 14, 120, 28)
+            with c2:
+                service_level = st.selectbox("Service level", [80, 90, 95, 98], index=2)
+                holiday_boost = st.slider("Коэф. праздников (%)", 0, 100, 20)
+                ly_window_days = st.slider("Окно прошлого года (±дней)", 7, 45, 14)
+            with c3:
+                trend_weight = st.slider("Вес тренда", 0.0, 1.0, 0.6)
+                ly_weight = st.slider("Вес прошлого года", 0.0, 1.0, 0.4)
+                sigma_window_days = st.slider("Окно волатильности (дней)", 14, 180, 56)
+                pack_size_default = st.number_input("Кратность (упаковка)", 0.0, 10000.0, 0.0)
+                min_order_default = st.number_input("Мин. заказ (MOQ)", 0.0, 10000.0, 0.0)
+                use_weekday_yoy = st.checkbox("Усилить сравнение по дням недели (YoY)", value=True)
+                yoy_cap = st.slider("Ограничение YoY коэффициента", 0.5, 2.0, 1.5)
 
-    if preset_mode != "Пользовательский":
-        p = preset_params[preset_mode]
-        lead_time = p["lead_time"]
-        trend_window_days = p["trend_window_days"]
-        ly_window_days = p["ly_window_days"]
-        sigma_window_days = p["sigma_window_days"]
-        service_level = p["service_level"]
-        holiday_boost = p["holiday_boost"]
-        trend_weight = p["trend_weight"]
+            st.caption("Праздники: введите даты в формате `YYYY-MM-DD` или `DD.MM.YYYY`, по одной в строке.")
+            holiday_text = st.text_area("Доп. праздники", value="", height=100)
+    
+        if preset_mode != "Пользовательский":
+            p = preset_params[preset_mode]
+            lead_time = p["lead_time"]
+            trend_window_days = p["trend_window_days"]
+            ly_window_days = p["ly_window_days"]
+            sigma_window_days = p["sigma_window_days"]
+            service_level = p["service_level"]
+            holiday_boost = p["holiday_boost"]
+            trend_weight = p["trend_weight"]
+            ly_weight = p["ly_weight"]
+            use_weekday_yoy = p["use_weekday_yoy"]
+            yoy_cap = p["yoy_cap"]
         ly_weight = p["ly_weight"]
         use_weekday_yoy = p["use_weekday_yoy"]
         yoy_cap = p["yoy_cap"]
