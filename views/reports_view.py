@@ -299,7 +299,7 @@ def render_menu(df_current, df_prev, current_label="", prev_label=""):
                 other_sum = cats_sorted.loc[small_mask, 'Выручка с НДС'].sum()
                 cats_sorted = cats_sorted.loc[~small_mask, [target_cat, 'Выручка с НДС']]
                 cats_sorted = pd.concat(
-                    [cats_sorted, pd.DataFrame({target_cat: ["📦 Прочее"], "Выручка с НДС": [other_sum]})],
+                    [cats_sorted, pd.DataFrame({target_cat: ["🔹 Остальное (мелкое)"], "Выручка с НДС": [other_sum]})],
                     ignore_index=True
                 )
         
