@@ -9,13 +9,23 @@ def render_auth_screen():
         """
         <script>
         (function () {
-          const token = localStorage.getItem("resto_auth_token");
-          const attempted = sessionStorage.getItem("resto_auto_login_attempted");
-          const hasCookie = document.cookie.split("; ").some((x) => x.startsWith("resto_auth_token="));
-          if (token && !hasCookie && !attempted) {
-            sessionStorage.setItem("resto_auto_login_attempted", "1");
-            document.cookie = "resto_auth_token=" + encodeURIComponent(token) + "; path=/; max-age=2592000; SameSite=Lax";
-            window.location.reload();
+          try {
+              const token = localStorage.getItem("resto_auth_token");
+              const attempted = sessionStorage.getItem("resto_auto_login_attempted");
+              const hasCookie = document.cookie.split("; ").some((x) => x.trim().startsWith("resto_auth_token="));
+              
+              if (token && !hasCookie && !attempted) {
+                sessionStorage.setItem("resto_auto_login_attempted", "1");
+                const maxAge = 2592000; // 30 days
+                const cookieStr = "resto_auth_token=" + encodeURIComponent(token) + "; path=/; max-age=" + maxAge + "; SameSite=Lax";
+                
+                document.cookie = cookieStr;
+                try { window.parent.document.cookie = cookieStr; } catch(e) {}
+                
+                window.location.reload();
+              }
+          } catch (e) {
+              console.error("Auto-login error", e);
           }
         })();
         </script>
@@ -50,16 +60,30 @@ def render_auth_screen():
                     st.session_state.auth_token = token
                     
                     # Persist browser cookie for refresh survival
+                    # Use both document.cookie and parent.document.cookie for iframe compatibility
                     components.html(
                         f"""
                         <script>
-                            document.cookie = "resto_auth_token=" + encodeURIComponent("{token}") + "; path=/; max-age=2592000; SameSite=Lax";
-                            localStorage.setItem("resto_auth_token", "{token}");
+                            var token = "{token}";
+                            var maxAge = 2592000; // 30 days
+                            var cookieStr = "resto_auth_token=" + encodeURIComponent(token) + "; path=/; max-age=" + maxAge + "; SameSite=Lax";
+                            
+                            document.cookie = cookieStr;
+                            localStorage.setItem("resto_auth_token", token);
                             sessionStorage.removeItem("resto_auto_login_attempted");
+                            
+                            // Try setting on parent if inside iframe (Streamlit component)
+                            try {{
+                                window.parent.document.cookie = cookieStr;
+                            }} catch (e) {{
+                                console.log("Cross-origin frame block, normal behavior if different origin");
+                            }}
                         </script>
                         """,
                         height=0
                     )
+                    import time
+                    time.sleep(1) # Give JS time to execute
                     st.rerun()
 
     with tab_register:
