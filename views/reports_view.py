@@ -293,7 +293,8 @@ def render_menu(df_current, df_prev, current_label="", prev_label=""):
         total_rev = cats_sorted['Выручка с НДС'].sum()
         if total_rev > 0:
             cats_sorted['share'] = cats_sorted['Выручка с НДС'] / total_rev
-            small_mask = cats_sorted['share'] < 0.03
+            # Increased threshold to avoid clutter
+            small_mask = cats_sorted['share'] < 0.05
             if small_mask.any():
                 other_sum = cats_sorted.loc[small_mask, 'Выручка с НДС'].sum()
                 cats_sorted = cats_sorted.loc[~small_mask, [target_cat, 'Выручка с НДС']]
@@ -301,11 +302,12 @@ def render_menu(df_current, df_prev, current_label="", prev_label=""):
                     [cats_sorted, pd.DataFrame({target_cat: ["📦 Прочее"], "Выручка с НДС": [other_sum]})],
                     ignore_index=True
                 )
+        
         fig = px.pie(
             cats_sorted,
             values='Выручка с НДС',
             names=target_cat,
-            hole=0.6,
+            hole=0.5,
             title="Структура выручки"
         )
         # Apply global theme first
@@ -313,21 +315,22 @@ def render_menu(df_current, df_prev, current_label="", prev_label=""):
         
         # Then override for specific pie chart needs
         fig.update_traces(
-            textposition='outside', 
-            textinfo='percent+label', 
+            textposition='auto', 
+            textinfo='percent',
             pull=[0.05] + [0] * (len(cats_sorted)-1)
         )
+        
+        # Legend on the right (vertical) looks cleaner for many items
         fig.update_layout(
             legend=dict(
-                orientation="h", 
-                yanchor="bottom", 
-                y=-0.3, 
-                xanchor="center", 
-                x=0.5,
-                itemwidth=70
+                orientation="v", 
+                yanchor="top", 
+                y=1, 
+                xanchor="left", 
+                x=1.05
             ),
-            title=dict(x=0.5, y=0.98, xanchor="center", yanchor="top"),
-            margin=dict(l=20, r=20, t=80, b=100),
+            title=dict(x=0.05, y=0.98, xanchor="left", yanchor="top"),
+            margin=dict(l=20, r=120, t=60, b=20),
             showlegend=True
         )
         st.plotly_chart(fig, use_container_width=True)
