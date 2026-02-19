@@ -68,6 +68,8 @@ if st.session_state.auth_user is None:
     current_ua = st.context.headers.get("user-agent")
     token_from_cookie = st.context.cookies.get("resto_auth_token")
     if token_from_cookie:
+        from urllib.parse import unquote
+        token_from_cookie = unquote(token_from_cookie)
         uid = auth.resolve_runtime_session(token_from_cookie, user_agent=current_ua)
         if uid is not None:
             restored = auth.get_user_by_id(uid)

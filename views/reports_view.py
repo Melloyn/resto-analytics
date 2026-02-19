@@ -587,7 +587,19 @@ def render_weekdays(df_current, df_prev, current_label="", prev_label=""):
         st.plotly_chart(ui.update_chart_layout(fig_daily), use_container_width=True)
 
 def render_procurement_v2(df_sales, df_full, period_days):
-    st.subheader("📦 Планирование Закупок")
+    st.subheader("📦 План Закупок (Smart)")
+
+    # --- DEBUG SECTION START ---
+    with st.expander("🕵️ Диагностика Белого Списка (Что есть в Товарообороте?)"):
+        st.write(f"Всего позиций в Товарообороте: {len(stock_df) if stock_df is not None else 0}")
+        if stock_df is not None:
+            search_term = st.text_input("Поиск по Товарообороту:", value="рислинг")
+            if search_term:
+                debug_hits = stock_df[stock_df['ingredient'].str.contains(search_term, case=False, na=False)]
+                st.dataframe(debug_hits[['ingredient', 'unit', 'stock_qty']])
+            else:
+                st.dataframe(stock_df[['ingredient', 'unit', 'stock_qty']].head(10))
+    # --- DEBUG SECTION END ---
     
     recipes_map = data_loader.get_recipes_map()
     stock_df = data_loader.get_stock_data()
@@ -794,10 +806,17 @@ def render_procurement_v2(df_sales, df_full, period_days):
         for y in years_in_targets:
             holiday_dates.update(get_ru_holidays(y))
 
+        # Prepare Validation Set (Strict Whitelist from Stock/Turnover)
+        valid_stock_items = set()
+        if stock_df is not None and not stock_df.empty:
+             valid_stock_items = set(stock_df['ingredient'].unique())
+
         def explode_sales_to_ingredients(df_src):
             if df_src.empty:
                 return pd.DataFrame(columns=["date", "ingredient", "qty"])
             df_src = df_src.copy()
+            
+            # Group by dish
             daily_sales = df_src.groupby(['Дата_Отчета', 'Блюдо'])['Количество'].sum().reset_index()
             daily_sales['norm_dish'] = daily_sales['Блюдо'].apply(lambda x: parsing_service.normalize_name(str(x)))
             rows = []
@@ -812,10 +831,15 @@ def render_procurement_v2(df_sales, df_full, period_days):
                         sub_qty = qty_needed * ing['qty_per_dish']
                         resolve_ingredients(i_name, sub_qty, dt, depth + 1)
                 else:
-                    rows.append({"date": dt, "ingredient": name, "qty": qty_needed})
+                    # NO RECIPE found.
+                    # STRICT CHECK: Only keep if it exists in Stock (Turnover) file.
+                    if name in valid_stock_items:
+                        rows.append({"date": dt, "ingredient": name, "qty": qty_needed})
+                    # Else: Drop it (Virtual Dish, Modifier, Service, etc.)
 
             for _, row in daily_sales.iterrows():
                 resolve_ingredients(row["norm_dish"], row["Количество"], row["Дата_Отчета"])
+                
             if not rows:
                 return pd.DataFrame(columns=["date", "ingredient", "qty"])
             return pd.DataFrame(rows)
@@ -832,9 +856,15 @@ def render_procurement_v2(df_sales, df_full, period_days):
             if use_history:
                 df_hist_ing = df_history[(df_history['date'] >= start_date) & (df_history['date'] <= end_date)].copy()
                 if not df_hist_ing.empty:
-                    # Exclude semi-finished (have recipes)
+                    # 1. Exclude items that have recipes (they are composite dishes)
                     df_hist_ing = df_hist_ing[~df_hist_ing['ingredient'].isin(recipes_map.keys())]
-                    df_hist_ing = df_hist_ing.groupby(['ingredient', 'date'])['qty_out'].sum().reset_index()
+                    
+                    # 2. Strict Whitelist Check for History too
+                    if not df_hist_ing.empty and valid_stock_items:
+                        df_hist_ing = df_hist_ing[df_hist_ing['ingredient'].isin(valid_stock_items)]
+
+                    if not df_hist_ing.empty:
+                        df_hist_ing = df_hist_ing.groupby(['ingredient', 'date'])['qty_out'].sum().reset_index()
 
             if df_hist_ing.empty and df_sales_ing.empty:
                 return pd.DataFrame(columns=["ingredient", "date", "qty"])
