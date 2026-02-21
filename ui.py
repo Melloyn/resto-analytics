@@ -530,7 +530,14 @@ def setup_style():
             box-shadow: none !important;
             border-bottom: none !important;
         }
-        [data-testid="stToolbar"],
+        [data-testid="stToolbar"] {
+            display: flex !important;
+            background: transparent !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            box-shadow: none !important;
+            border: none !important;
+        }
         [data-testid="stDecoration"] {
             display: none !important;
         }
@@ -824,6 +831,12 @@ def setup_style():
             border-bottom: 1px solid rgba(160, 205, 255, 0.12) !important;
             box-shadow: none !important;
         }
+        .ag-row-odd{
+            background: rgba(24, 40, 64, 0.34) !important;
+        }
+        .ag-row-even{
+            background: rgba(18, 32, 54, 0.26) !important;
+        }
         .ag-row:nth-child(even){
             background: rgba(18, 32, 54, 0.26) !important;
         }
@@ -846,6 +859,12 @@ def setup_style():
             border-right: none !important;
         }
         .ag-root-wrapper-body.ag-layout-normal{
+            background: transparent !important;
+        }
+        .ag-center-cols-clipper,
+        .ag-center-cols-container,
+        .ag-body-viewport,
+        .ag-body-horizontal-scroll-viewport{
             background: transparent !important;
         }
         .ag-body-viewport::-webkit-scrollbar,
@@ -1034,8 +1053,13 @@ def render_aggrid(df, height=400, pagination=False, formatting=None, fit_columns
             },
             ".ag-header-cell-label": {"color": "#f3f8ff !important", "font-weight": "600"},
             ".ag-row": {"background-color": "rgba(24, 40, 64, 0.34) !important", "color": "#eaf3ff !important"},
+            ".ag-row-odd": {"background-color": "rgba(24, 40, 64, 0.34) !important", "color": "#eaf3ff !important"},
+            ".ag-row-even": {"background-color": "rgba(18, 32, 54, 0.26) !important", "color": "#eaf3ff !important"},
             ".ag-row-hover": {"background-color": "rgba(46, 77, 120, 0.45) !important"},
             ".ag-cell": {"color": "#eaf3ff !important", "background-color": "transparent !important", "border-right": "1px solid rgba(145, 188, 240, 0.12)"},
+            ".ag-center-cols-clipper": {"background-color": "transparent !important"},
+            ".ag-center-cols-container": {"background-color": "transparent !important"},
+            ".ag-body-viewport": {"background-color": "transparent !important"},
         },
         update_mode=GridUpdateMode.NO_UPDATE,
         allow_unsafe_jscode=True
