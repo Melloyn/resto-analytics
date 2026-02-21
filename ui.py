@@ -836,18 +836,18 @@ def setup_style():
             letter-spacing: 0.01em !important;
         }
         .ag-row{
-            background: rgba(24, 40, 64, 0.34) !important;
+            background: rgba(15, 27, 45, 0.88) !important;
             border-bottom: 1px solid rgba(160, 205, 255, 0.12) !important;
             box-shadow: none !important;
         }
         .ag-row-odd{
-            background: rgba(24, 40, 64, 0.34) !important;
+            background: rgba(15, 27, 45, 0.88) !important;
         }
         .ag-row-even{
-            background: rgba(18, 32, 54, 0.26) !important;
+            background: rgba(12, 23, 39, 0.88) !important;
         }
         .ag-row:nth-child(even){
-            background: rgba(18, 32, 54, 0.26) !important;
+            background: rgba(12, 23, 39, 0.88) !important;
         }
         .ag-row-hover{
             background: rgba(46, 77, 120, 0.45) !important;
@@ -855,7 +855,7 @@ def setup_style():
         }
         .ag-cell{
             color: #eaf3ff !important;
-            background: transparent !important;
+            background: inherit !important;
             border-right: 1px solid rgba(145, 188, 240, 0.12) !important;
         }
         .ag-ltr .ag-cell:last-child{
@@ -874,7 +874,7 @@ def setup_style():
         .ag-center-cols-container,
         .ag-body-viewport,
         .ag-body-horizontal-scroll-viewport{
-            background: transparent !important;
+            background: rgba(11, 20, 35, 0.96) !important;
         }
         .ag-body-viewport::-webkit-scrollbar,
         .ag-body-horizontal-scroll-viewport::-webkit-scrollbar{
@@ -1047,14 +1047,14 @@ def render_aggrid(df, height=400, pagination=False, formatting=None, fit_columns
         df,
         gridOptions=gridOptions,
         height=height,
-        theme="alpine", # fallback if custom needed
+        theme="balham-dark",
         custom_css={
-            ".ag-theme-alpine": {
+            ".ag-theme-alpine, .ag-theme-balham-dark": {
                 "--ag-background-color": "rgba(11, 20, 35, 0.9)",
                 "--ag-foreground-color": "#eaf3ff",
                 "--ag-header-background-color": "rgba(24, 42, 70, 0.92)",
                 "--ag-header-foreground-color": "#f3f8ff",
-                "--ag-odd-row-background-color": "rgba(24, 40, 64, 0.34)",
+                "--ag-odd-row-background-color": "rgba(15, 27, 45, 0.88)",
                 "--ag-row-hover-color": "rgba(46, 77, 120, 0.45)",
                 "--ag-row-border-color": "rgba(160, 205, 255, 0.12)",
                 "--ag-border-color": "rgba(180, 220, 255, 0.25)",
@@ -1071,14 +1071,14 @@ def render_aggrid(df, height=400, pagination=False, formatting=None, fit_columns
                 "border-bottom": "1px solid rgba(143, 205, 255, 0.28)"
             },
             ".ag-header-cell-label": {"color": "#f3f8ff !important", "font-weight": "600"},
-            ".ag-row": {"background-color": "rgba(24, 40, 64, 0.34) !important", "color": "#eaf3ff !important"},
-            ".ag-row-odd": {"background-color": "rgba(24, 40, 64, 0.34) !important", "color": "#eaf3ff !important"},
-            ".ag-row-even": {"background-color": "rgba(18, 32, 54, 0.26) !important", "color": "#eaf3ff !important"},
+            ".ag-row": {"background-color": "rgba(15, 27, 45, 0.88) !important", "color": "#eaf3ff !important"},
+            ".ag-row-odd": {"background-color": "rgba(15, 27, 45, 0.88) !important", "color": "#eaf3ff !important"},
+            ".ag-row-even": {"background-color": "rgba(12, 23, 39, 0.88) !important", "color": "#eaf3ff !important"},
             ".ag-row-hover": {"background-color": "rgba(46, 77, 120, 0.45) !important"},
-            ".ag-cell": {"color": "#eaf3ff !important", "background-color": "transparent !important", "border-right": "1px solid rgba(145, 188, 240, 0.12)"},
-            ".ag-center-cols-clipper": {"background-color": "transparent !important"},
-            ".ag-center-cols-container": {"background-color": "transparent !important"},
-            ".ag-body-viewport": {"background-color": "transparent !important"},
+            ".ag-cell": {"color": "#eaf3ff !important", "background-color": "inherit !important", "border-right": "1px solid rgba(145, 188, 240, 0.12)"},
+            ".ag-center-cols-clipper": {"background-color": "rgba(11, 20, 35, 0.96) !important"},
+            ".ag-center-cols-container": {"background-color": "rgba(11, 20, 35, 0.96) !important"},
+            ".ag-body-viewport": {"background-color": "rgba(11, 20, 35, 0.96) !important"},
         },
         update_mode=GridUpdateMode.NO_UPDATE,
         allow_unsafe_jscode=True
