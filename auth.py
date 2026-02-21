@@ -22,9 +22,13 @@ def get_secret(key):
 def _db_conn():
     return sqlite3.connect(USERS_DB)
 
-def sync_users_from_yandex(token, remote_path=YANDEX_USERS_PATH):
+def sync_users_from_yandex(token, remote_path=YANDEX_USERS_PATH, force=False):
     if not token:
         return False
+    if os.path.exists(USERS_DB) and not force:
+        # Keep current behavior for explicit non-forced sync calls.
+        return True
+        
     headers = {'Authorization': f'OAuth {token}'}
     try:
         resp = requests.get(
@@ -95,6 +99,14 @@ def init_auth_db():
                 ua_hash TEXT
             )
         """)
+        # Create table for brute-force protection
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS login_attempts (
+                login TEXT PRIMARY KEY,
+                attempts INTEGER DEFAULT 0,
+                last_attempt TEXT NOT NULL
+            )
+        """)
         conn.commit()
 
 def _hash_password(password, salt_hex):
@@ -117,9 +129,12 @@ def _hash_user_agent(user_agent):
 def _get_session_secret():
     secret = get_secret("SESSION_SECRET") or os.getenv("SESSION_SECRET")
     if not secret:
+        # Fallback to admin password in extreme cases
         secret = get_secret("ADMIN_PASSWORD") or os.getenv("ADMIN_PASSWORD")
     if not secret:
-        secret = "resto-analytics-dev"
+        # DO NOT allow empty secrets in production
+        st.error("🚨 КРИТИЧЕСКАЯ ОШИБКА БЕЗОПАСНОСТИ: В `secrets.toml` не задан `SESSION_SECRET` или `ADMIN_PASSWORD`.")
+        st.stop()
     return secret.encode("utf-8")
 
 def _encode_b64(data: bytes) -> str:
@@ -165,27 +180,72 @@ def create_user(full_name, login, email, phone, password, role="user", status="p
         sync_users_to_yandex(token)
 
 def authenticate_user(login, password):
+    login = login.strip()
+    now_iso = datetime.utcnow().isoformat()
+    now_ts = datetime.utcnow().timestamp()
+
     with _db_conn() as conn:
+        # 1. Check Rate Limits (Brute-Force protection)
+        limit_row = conn.execute("SELECT attempts, last_attempt FROM login_attempts WHERE login = ?", (login,)).fetchone()
+        if limit_row:
+            attempts, last_attempt_str = limit_row
+            try:
+                last_attempt_time = datetime.fromisoformat(last_attempt_str).timestamp()
+                # 5 minutes block after 5 failed attempts
+                if attempts >= 5 and (now_ts - last_attempt_time) < 300:
+                   remaining = int(300 - (now_ts - last_attempt_time))
+                   return None, f"⚠️ Слишком много попыток входа. Попробуйте через {remaining} секунд."
+                elif attempts >= 5 and (now_ts - last_attempt_time) >= 300:
+                   # Reset if cooled down
+                   conn.execute("UPDATE login_attempts SET attempts = 0 WHERE login = ?", (login,))
+            except Exception:
+                pass
+
+
+        # 2. Lookup User
         row = conn.execute(
             """
             SELECT id, full_name, login, email, phone, password_salt, password_hash, role, status
             FROM users
             WHERE login = ?
             """,
-            (login.strip(),),
+            (login,),
         ).fetchone()
+
     if not row:
+        _record_failed_attempt(login, now_iso)
         return None, "Неверный логин или пароль."
 
     user = {
         "id": row[0], "full_name": row[1], "login": row[2], "email": row[3], "phone": row[4],
         "password_salt": row[5], "password_hash": row[6], "role": row[7], "status": row[8]
     }
+    
+    # 3. Verify Pass
     if not _verify_password(password, user["password_salt"], user["password_hash"]):
+        _record_failed_attempt(login, now_iso)
         return None, "Неверный логин или пароль."
+        
+    # 4. Filter Status
     if user["status"] != "approved":
-        return None, "Ваш аккаунт пока не одобрен администратором."
+         return None, "Ваш аккаунт пока не одобрен администратором."
+         
+    # 5. Success -> Reset attempts
+    with _db_conn() as conn:
+         conn.execute("DELETE FROM login_attempts WHERE login = ?", (login,))
+         conn.commit()
+
     return user, None
+
+def _record_failed_attempt(login, attempt_time):
+     with _db_conn() as conn:
+         conn.execute("""
+            INSERT INTO login_attempts (login, attempts, last_attempt) 
+            VALUES (?, 1, ?) 
+            ON CONFLICT(login) DO UPDATE SET 
+            attempts = attempts + 1, last_attempt = ?
+         """, (login, attempt_time, attempt_time))
+         conn.commit()
 
 def get_pending_users():
     with _db_conn() as conn:

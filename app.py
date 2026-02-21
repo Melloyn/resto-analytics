@@ -3,10 +3,16 @@ import pandas as pd
 import streamlit.components.v1 as components
 import os
 import telegram_utils
+
+from views.reports import (
+    kpi_view, inflation_view, export_view,
+    menu_view, abc_view, simulator_view,
+    weekday_view, procurement_view
+)
 from services import data_loader, analytics_service, category_service
 import auth
 import ui
-from views import admin_view, login_view, reports_view
+from views import admin_view, login_view
 from datetime import datetime, timedelta
 
 # --- НАСТРОЙКИ СТРАНИЦЫ ---
@@ -17,6 +23,12 @@ ui.setup_style()
 ui.setup_parallax()
 
 # --- АВТОМАТИЗАЦИЯ И БД ---
+auth.init_auth_db()
+# Pull users DB from cloud before auth checks, so registered users survive restarts.
+_yd_boot_token = auth.get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
+if _yd_boot_token:
+    auth.sync_users_from_yandex(_yd_boot_token, force=True)
+# Ensure schema exists after possible DB overwrite.
 auth.init_auth_db()
 auth.bootstrap_admin()
 
@@ -253,11 +265,19 @@ with st.sidebar:
                  if not meta_ok:
                      st.warning("Кэш устарел. Нажмите «Скачать и обновить».")
                  else:
+                     placeholder = st.empty()
+                     with placeholder.container():
+                         st.markdown("### Загрузка аналитики из кэша...")
+                         ui.render_skeleton_kpis()
+                         st.markdown("<br>", unsafe_allow_html=True)
+                         ui.render_skeleton_chart()
+                         import time; time.sleep(0.05) # Force UI flush
                      df = pd.read_parquet(data_loader.CACHE_FILE)
                      # Always re-apply categories from current mapping,
                      # so category edits survive app/server restarts.
                      df = category_service.apply_categories(df)
                      st.session_state.df_full = df
+                     placeholder.empty()
              except Exception as e:
                  st.error(f"Ошибка чтения кэша: {e}")
     
@@ -289,10 +309,9 @@ with st.sidebar:
             
             df_current = pd.DataFrame()
             df_prev = pd.DataFrame()
-            target_date = datetime.now()
-            period_title_base = ""
+            selected_period = {}
+            current_label = ""
             prev_label = ""
-            inflation_start_date = None
             
             if period_mode == "📌 Последний загруженный день":
                  last_day = pd.to_datetime(df_full['Дата_Отчета']).max().normalize()
@@ -300,9 +319,8 @@ with st.sidebar:
                  day_end = last_day + timedelta(hours=23, minutes=59, seconds=59)
                  df_current = df_full[(df_full['Дата_Отчета'] >= day_start) & (df_full['Дата_Отчета'] <= day_end)]
                  df_prev = pd.DataFrame()
-                 period_title_base = f"{last_day.strftime('%d.%m.%Y')} (последний загруженный день)"
-                 target_date = day_end
-                 inflation_start_date = day_start.replace(day=1)
+                 current_label = f"{last_day.strftime('%d.%m.%Y')} (последний загруженный день)"
+                 selected_period = {'start': day_start, 'end': day_end, 'days': 1, 'inflation_start': day_start.replace(day=1)}
 
             elif period_mode == "📅 Месяц (Сравнение)":
                  df_full['YearMonth'] = df_full['Дата_Отчета'].dt.to_period('M')
@@ -324,9 +342,8 @@ with st.sidebar:
                          end_cur = end_cur.replace(hour=23, minute=59, second=59)
 
                      df_current = df_full[(df_full['Дата_Отчета'] >= start_cur) & (df_full['Дата_Отчета'] <= end_cur)]
-                     period_title_base = f"{selected_ym.strftime('%b %Y')} ({scope_mode})"
-                     target_date = end_cur
-                     inflation_start_date = start_cur
+                     current_label = f"{selected_ym.strftime('%b %Y')} ({scope_mode})"
+                     selected_period = {'start': start_cur, 'end': end_cur, 'days': (end_cur - start_cur).days + 1, 'inflation_start': start_cur}
                      
                      compare_mode = st.selectbox("Сравнить с:", ["Предыдущий месяц", "Год назад", "Нет"], index=1)
                      
@@ -350,12 +367,12 @@ with st.sidebar:
                     s = pd.to_datetime(s)
                     e = pd.to_datetime(e) + timedelta(hours=23, minutes=59)
                     df_current = df_full[(df_full['Дата_Отчета'] >= s) & (df_full['Дата_Отчета'] <= e)]
-                    period_title_base = f"{s.date()} - {e.date()}"
-                    target_date = e
-                    inflation_start_date = s
+                    current_label = f"{s.date()} - {e.date()}"
+                    selected_period = {'start': s, 'end': e, 'days': (e - s).days + 1, 'inflation_start': s}
         
         # --- RENDER EXPORT SIDEBAR ---
-        reports_view.render_sidebar_export(df_current, df_full, tg_token, tg_chat, pd.to_datetime(target_date))
+        if selected_period and 'end' in selected_period:
+            export_view.render_sidebar_export(df_current, df_full, tg_token, tg_chat, pd.to_datetime(selected_period['end']))
 
     else:
         st.info("👈 Загрузите данные в боковом меню.")
@@ -364,7 +381,7 @@ with st.sidebar:
 # --- ТЕЛО ОТЧЕТА ---
 
 if not df_current.empty:
-    reports_view.render_kpi(df_current, df_prev, period_title_base)
+    kpi_view.render_kpi(df_current, df_prev, current_label)
     
     # --- SMART INSIGHTS ---
     cur_rev = df_current['Выручка с НДС'].sum()
@@ -380,43 +397,57 @@ if not df_current.empty:
             elif i['level'] == 'success': st.success(i['message'])
 
     # --- TABS ---
-    tab_options = ["🔥 Инфляция", "🍰 Меню и Косты", "⭐ Матрица (ABC)", "🗓 Дни недели", "📦 Закупки", "🔮 Симулятор"]
-    selected_tab = st.radio("Раздел:", tab_options, horizontal=True, label_visibility="collapsed")
-    st.divider()
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "Выручка (Меню)", "Инфляция С/С", 
+        "ABC-анализ", "Симулятор цен", 
+        "Дни недели", "Закупки"
+    ])
     
-    if selected_tab == "🔥 Инфляция":
-        reports_view.render_inflation(df_full, df_current, target_date, inflation_start_date)
-            
-    elif selected_tab == "🍰 Меню и Косты":
-        reports_view.render_menu(df_current, df_prev, period_title_base, prev_label)
-            
-    elif selected_tab == "⭐ Матрица (ABC)":
-        reports_view.render_abc(df_current)
-        
-    elif selected_tab == "🗓 Дни недели":
-        reports_view.render_weekdays(df_current, df_prev, period_title_base, prev_label)
-            
-
-    elif selected_tab == "📦 Закупки":
-        # New Procurement Logic
-        # We need period_days. Calculate from period_title_base or df_current dates
-        if not df_current.empty:
-            d_min = df_current['Дата_Отчета'].min()
-            d_max = df_current['Дата_Отчета'].max()
-            days = (d_max - d_min).days + 1
-        else:
-            days = 1
-        reports_view.render_procurement_v2(df_current, df_full, days)
-
-        
-    elif selected_tab == "🔮 Симулятор":
-        reports_view.render_simulator(df_current, df_full)
-
-    if selected_tab == "🍰 Меню и Косты":
+    with tab1:
+        menu_view.render_menu(df_current, df_prev, current_label, prev_label)
         with st.expander("🔬 Расширенные разделы", expanded=False):
             adv_tab = st.radio("Дополнительно", ["📉 Динамика"], horizontal=True, label_visibility="collapsed")
             if adv_tab == "📉 Динамика":
-                reports_view.render_dynamics(df_full, df_current)
+                menu_view.render_dynamics(df_full, df_current)
+    
+    with tab2:
+        inflation_view.render_inflation(df_full, df_current, selected_period['end'], selected_period['inflation_start'])
+        
+    with tab3:
+        abc_view.render_abc(df_current)
+        
+    with tab4:
+        simulator_view.render_simulator(df_current, df_full)
+        
+    with tab5:
+        weekday_view.render_weekdays(df_current, df_prev, current_label, prev_label)
+        
+    with tab6:
+        procurement_view.render_procurement_v2(df_current, df_full, selected_period['days'])
 
 else:
-    st.warning("Нет данных за выбранный период.")
+    from streamlit_lottie import st_lottie
+    import requests
+    
+    @st.cache_data
+    def load_lottieurl(url: str):
+        try:
+            r = requests.get(url, timeout=5)
+            if r.status_code == 200:
+                return r.json()
+        except:
+            return None
+            
+    # Lottie "No Data / Empty" animation (a standard clean one from lottiefiles)
+    lottie_empty = load_lottieurl("https://assets5.lottiefiles.com/packages/lf20_a1xjeug1.json")
+    
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if lottie_empty:
+            st_lottie(lottie_empty, height=300, key="empty_data")
+        st.markdown(
+            "<h3 style='text-align: center; color: var(--text-soft);'>Нет данных за выбранный период</h3>"
+            "<p style='text-align: center; color: rgba(255,255,255,0.4);'>Пожалуйста, выберите другие даты или загрузите новые данные из источника.</p>",
+            unsafe_allow_html=True
+        )
