@@ -532,14 +532,15 @@ def setup_style():
         }
         [data-testid="stToolbar"] {
             display: flex !important;
-            background: transparent !important;
-            backdrop-filter: none !important;
-            -webkit-backdrop-filter: none !important;
-            box-shadow: none !important;
-            border: none !important;
         }
         [data-testid="stDecoration"] {
             display: none !important;
+        }
+        [data-testid="collapsedControl"] {
+            display: flex !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            z-index: 1001 !important;
         }
 
         #MainMenu {visibility: hidden;}
@@ -809,6 +810,14 @@ def setup_style():
         .ag-theme-streamlit,
         .ag-theme-alpine,
         .ag-root-wrapper{
+            --ag-background-color: rgba(11, 20, 35, 0.9) !important;
+            --ag-foreground-color: #eaf3ff !important;
+            --ag-header-background-color: rgba(24, 42, 70, 0.92) !important;
+            --ag-header-foreground-color: #f3f8ff !important;
+            --ag-odd-row-background-color: rgba(24, 40, 64, 0.34) !important;
+            --ag-row-hover-color: rgba(46, 77, 120, 0.45) !important;
+            --ag-row-border-color: rgba(160, 205, 255, 0.12) !important;
+            --ag-border-color: rgba(180, 220, 255, 0.25) !important;
             border-radius: 16px !important;
             background: linear-gradient(160deg, rgba(26, 44, 74, 0.42), rgba(13, 24, 43, 0.5)) !important;
             backdrop-filter: blur(22px) saturate(130%) !important;
@@ -1040,6 +1049,16 @@ def render_aggrid(df, height=400, pagination=False, formatting=None, fit_columns
         height=height,
         theme="alpine", # fallback if custom needed
         custom_css={
+            ".ag-theme-alpine": {
+                "--ag-background-color": "rgba(11, 20, 35, 0.9)",
+                "--ag-foreground-color": "#eaf3ff",
+                "--ag-header-background-color": "rgba(24, 42, 70, 0.92)",
+                "--ag-header-foreground-color": "#f3f8ff",
+                "--ag-odd-row-background-color": "rgba(24, 40, 64, 0.34)",
+                "--ag-row-hover-color": "rgba(46, 77, 120, 0.45)",
+                "--ag-row-border-color": "rgba(160, 205, 255, 0.12)",
+                "--ag-border-color": "rgba(180, 220, 255, 0.25)",
+            },
             ".ag-root-wrapper": {
                 "border-radius": "14px",
                 "overflow": "hidden",
