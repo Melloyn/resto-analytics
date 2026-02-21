@@ -723,36 +723,9 @@ def setup_style():
             background: var(--ra-glass) !important;
             backdrop-filter: blur(40px) saturate(135%) !important;
             -webkit-backdrop-filter: blur(40px) saturate(135%) !important;
-            border: 1px solid transparent !important;
-            border-image: var(--ra-border-grad) 1 !important;
+            border: 1px solid rgba(180, 220, 255, 0.25) !important;
             box-shadow: var(--ra-shadow-outer), var(--ra-shadow-inner), var(--ra-glow) !important;
             transition: all 0.4s var(--ra-ease) !important;
-        }
-
-        /* layered glass stack */
-        button[kind]::before,
-        button[kind]::after,
-        div[data-baseweb="input"] > div::before,
-        div[data-baseweb="select"] > div::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            pointer-events: none;
-            border-radius: inherit;
-            background: rgba(255,255,255,0.02);
-            border: 1px solid rgba(255,255,255,0.08);
-        }
-        button[kind]::before,
-        div[data-baseweb="input"] > div::before,
-        div[data-baseweb="select"] > div::before{
-            transform: translate(4px,4px);
-            opacity: 0.4;
-            filter: blur(1px);
-        }
-        button[kind]::after{
-            transform: translate(8px,8px);
-            opacity: 0.22;
-            filter: blur(2px);
         }
 
         /* shimmer */
@@ -778,11 +751,6 @@ def setup_style():
                 0 0 28px rgba(157,80,187,0.24) !important;
         }
         button[kind]::selection{ background: transparent; }
-        button[kind]:hover::before,
-        div[data-baseweb="input"] > div:hover::before,
-        div[data-baseweb="select"] > div:hover::before{
-            animation: raShimmer 0.6s var(--ra-ease) 1;
-        }
         @keyframes raShimmer{
             0%{ background: linear-gradient(45deg, transparent, rgba(255,255,255,0.0), transparent); }
             35%{ background: linear-gradient(45deg, transparent, rgba(255,255,255,0.17), transparent); }
@@ -805,7 +773,7 @@ def setup_style():
 
         /* Active tabs / toggles */
         [role="tab"][aria-selected="true"]{
-            border-image: linear-gradient(145deg, rgba(112,215,255,0.95), rgba(157,80,187,0.78), rgba(255,255,255,0.0)) 1 !important;
+            border-color: rgba(112,215,255,0.9) !important;
             box-shadow:
                 0 10px 32px rgba(0,0,0,0.64),
                 inset 0 0 14px rgba(255,255,255,0.2),
@@ -822,19 +790,34 @@ def setup_style():
             box-shadow: 0 8px 32px rgba(0,0,0,0.6), inset 0 0 12px rgba(255,255,255,0.1) !important;
         }
 
-        /* tables rows as glass cards */
+        /* Tables: keep contrast stable (fix washed-out data) */
         .ag-theme-streamlit,
+        .ag-theme-alpine,
         .ag-root-wrapper{
             border-radius: 16px !important;
+            background: rgba(10, 20, 38, 0.92) !important;
+            color: #eaf3ff !important;
+        }
+        .ag-header{
+            background: rgba(24, 36, 58, 0.95) !important;
+        }
+        .ag-header-cell-label, .ag-header-cell-text{
+            color: #f3f8ff !important;
+            font-weight: 600 !important;
         }
         .ag-row{
-            background: rgba(255,255,255,0.03) !important;
-            border: 1px solid rgba(255,255,255,0.1) !important;
-            box-shadow: 0 6px 18px rgba(0,0,0,0.45), inset 0 0 8px rgba(255,255,255,0.08) !important;
+            background: rgba(14, 26, 46, 0.82) !important;
+            border-bottom: 1px solid rgba(160, 205, 255, 0.18) !important;
+            box-shadow: none !important;
         }
         .ag-row-hover{
-            background: rgba(255,255,255,0.06) !important;
-            box-shadow: 0 8px 22px rgba(0,0,0,0.5), 0 0 14px rgba(112,215,255,0.25) !important;
+            background: rgba(30, 54, 86, 0.95) !important;
+            box-shadow: none !important;
+        }
+        .ag-cell{
+            color: #eaf3ff !important;
+            background: transparent !important;
+            border-right: 1px solid rgba(145, 188, 240, 0.12) !important;
         }
 
         /* negative pulse for critical cards if down icon exists */
@@ -999,11 +982,12 @@ def render_aggrid(df, height=400, pagination=False, formatting=None, fit_columns
         height=height,
         theme="alpine", # fallback if custom needed
         custom_css={
-            ".ag-root-wrapper": {"border-radius": "14px", "overflow": "hidden", "border": "1px solid rgba(228, 243, 255, 0.28)", "box-shadow": "0 8px 30px rgba(6, 18, 41, 0.3)"},
-            ".ag-header": {"background-color": "rgba(4, 18, 42, 0.6) !important"},
+            ".ag-root-wrapper": {"border-radius": "14px", "overflow": "hidden", "border": "1px solid rgba(168, 211, 255, 0.3)", "box-shadow": "0 8px 30px rgba(6, 18, 41, 0.3)", "background-color": "rgba(10,20,38,0.92) !important"},
+            ".ag-header": {"background-color": "rgba(24, 36, 58, 0.95) !important"},
             ".ag-header-cell-label": {"color": "#f3f8ff !important"},
-            ".ag-row": {"background-color": "rgba(167, 210, 255, 0.05) !important", "color": "#f3f8ff !important"},
-            ".ag-row-hover": {"background-color": "rgba(167, 210, 255, 0.15) !important"},
+            ".ag-row": {"background-color": "rgba(14, 26, 46, 0.82) !important", "color": "#eaf3ff !important"},
+            ".ag-row-hover": {"background-color": "rgba(30, 54, 86, 0.95) !important"},
+            ".ag-cell": {"color": "#eaf3ff !important", "background-color": "transparent !important"},
         },
         update_mode=GridUpdateMode.NO_UPDATE,
         allow_unsafe_jscode=True
