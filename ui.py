@@ -671,6 +671,196 @@ def setup_style():
     </style>
     """, unsafe_allow_html=True)
 
+    # Global glassmorphism override theme (requested full UI restyle).
+    st.markdown("""
+    <style>
+        :root{
+            --ra-bg: #0B0E14;
+            --ra-glass: rgba(255,255,255,0.03);
+            --ra-text: #E0E0E0;
+            --ra-accent: #70D7FF;
+            --ra-accent-2: #9D50BB;
+            --ra-good: #50FFBB;
+            --ra-bad: #FF5050;
+            --ra-border-grad: linear-gradient(145deg, rgba(255,255,255,0.42), rgba(255,255,255,0.18) 28%, rgba(255,255,255,0.0) 70%);
+            --ra-shadow-outer: 0 8px 32px 0 rgba(0,0,0,0.6);
+            --ra-shadow-inner: inset 0 0 12px rgba(255,255,255,0.1);
+            --ra-glow: 0 0 18px rgba(112,215,255,0.24);
+            --ra-ease: cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        html, body, .stApp{
+            background: var(--ra-bg) !important;
+            color: var(--ra-text) !important;
+        }
+
+        .main .block-container{
+            padding-top: 2.2rem !important;
+            padding-bottom: 2.6rem !important;
+            max-width: 96% !important;
+        }
+
+        h1, h2, h3{
+            letter-spacing: 0.04em !important;
+            color: #f4f8ff !important;
+        }
+
+        /* Shared glass surface */
+        [data-testid="stMetric"],
+        [data-testid="stExpander"],
+        [data-testid="stDataFrame"],
+        [data-testid="stAlert"],
+        [role="tab"],
+        div[data-baseweb="select"] > div,
+        div[data-baseweb="input"] > div,
+        button[kind],
+        .ag-root-wrapper,
+        .stTextInput > div > div,
+        .stNumberInput > div > div,
+        .stDateInput > div > div {
+            position: relative !important;
+            overflow: hidden !important;
+            background: var(--ra-glass) !important;
+            backdrop-filter: blur(40px) saturate(135%) !important;
+            -webkit-backdrop-filter: blur(40px) saturate(135%) !important;
+            border: 1px solid transparent !important;
+            border-image: var(--ra-border-grad) 1 !important;
+            box-shadow: var(--ra-shadow-outer), var(--ra-shadow-inner), var(--ra-glow) !important;
+            transition: all 0.4s var(--ra-ease) !important;
+        }
+
+        /* layered glass stack */
+        button[kind]::before,
+        button[kind]::after,
+        div[data-baseweb="input"] > div::before,
+        div[data-baseweb="select"] > div::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            border-radius: inherit;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        button[kind]::before,
+        div[data-baseweb="input"] > div::before,
+        div[data-baseweb="select"] > div::before{
+            transform: translate(4px,4px);
+            opacity: 0.4;
+            filter: blur(1px);
+        }
+        button[kind]::after{
+            transform: translate(8px,8px);
+            opacity: 0.22;
+            filter: blur(2px);
+        }
+
+        /* shimmer */
+        button[kind] > div,
+        div[data-baseweb="input"] > div,
+        div[data-baseweb="select"] > div{
+            background-clip: padding-box !important;
+        }
+        button[kind]:hover,
+        button[kind]:focus-visible,
+        [data-testid="stMetric"]:hover,
+        [data-testid="stExpander"]:hover,
+        [role="tab"]:hover,
+        div[data-baseweb="input"] > div:hover,
+        div[data-baseweb="input"] > div:focus-within,
+        div[data-baseweb="select"] > div:hover,
+        div[data-baseweb="select"] > div:focus-within{
+            transform: translateY(-2px) scale(1.02) !important;
+            box-shadow:
+                0 10px 36px rgba(0,0,0,0.68),
+                inset 0 0 14px rgba(255,255,255,0.18),
+                0 0 22px rgba(112,215,255,0.46),
+                0 0 28px rgba(157,80,187,0.24) !important;
+        }
+        button[kind]::selection{ background: transparent; }
+        button[kind]:hover::before,
+        div[data-baseweb="input"] > div:hover::before,
+        div[data-baseweb="select"] > div:hover::before{
+            animation: raShimmer 0.6s var(--ra-ease) 1;
+        }
+        @keyframes raShimmer{
+            0%{ background: linear-gradient(45deg, transparent, rgba(255,255,255,0.0), transparent); }
+            35%{ background: linear-gradient(45deg, transparent, rgba(255,255,255,0.17), transparent); }
+            100%{ background: linear-gradient(45deg, transparent, rgba(255,255,255,0.0), transparent); }
+        }
+
+        /* Buttons */
+        button[kind]{
+            border-radius: 16px !important;
+            color: #edf6ff !important;
+            letter-spacing: 0.03em !important;
+            padding: 0.62rem 1rem !important;
+        }
+        button[kind="primary"]{
+            box-shadow:
+                0 8px 32px rgba(0,0,0,0.65),
+                inset 0 0 12px rgba(255,255,255,0.12),
+                0 0 24px rgba(112,215,255,0.52) !important;
+        }
+
+        /* Active tabs / toggles */
+        [role="tab"][aria-selected="true"]{
+            border-image: linear-gradient(145deg, rgba(112,215,255,0.95), rgba(157,80,187,0.78), rgba(255,255,255,0.0)) 1 !important;
+            box-shadow:
+                0 10px 32px rgba(0,0,0,0.64),
+                inset 0 0 14px rgba(255,255,255,0.2),
+                0 0 26px rgba(112,215,255,0.6),
+                0 0 30px rgba(157,80,187,0.45) !important;
+        }
+
+        /* Sidebar */
+        [data-testid="stSidebar"]{
+            background: rgba(255,255,255,0.03) !important;
+            backdrop-filter: blur(40px) !important;
+            -webkit-backdrop-filter: blur(40px) !important;
+            border-right: 1px solid rgba(255,255,255,0.2) !important;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6), inset 0 0 12px rgba(255,255,255,0.1) !important;
+        }
+
+        /* tables rows as glass cards */
+        .ag-theme-streamlit,
+        .ag-root-wrapper{
+            border-radius: 16px !important;
+        }
+        .ag-row{
+            background: rgba(255,255,255,0.03) !important;
+            border: 1px solid rgba(255,255,255,0.1) !important;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.45), inset 0 0 8px rgba(255,255,255,0.08) !important;
+        }
+        .ag-row-hover{
+            background: rgba(255,255,255,0.06) !important;
+            box-shadow: 0 8px 22px rgba(0,0,0,0.5), 0 0 14px rgba(112,215,255,0.25) !important;
+        }
+
+        /* negative pulse for critical cards if down icon exists */
+        [data-testid="stMetric"]:has([data-testid="stMetricDelta"] svg[aria-label*="down"]),
+        [data-testid="stMetric"]:has([data-testid="stMetricDelta"] svg[aria-label*="Down"]){
+            animation: raPulseBad 1.5s infinite alternate;
+        }
+        @keyframes raPulseBad{
+            from{ box-shadow: 0 8px 32px rgba(0,0,0,0.6), inset 0 0 12px rgba(255,255,255,0.1), 0 0 10px rgba(255,80,80,0.35); }
+            to{ box-shadow: 0 8px 32px rgba(0,0,0,0.6), inset 0 0 12px rgba(255,255,255,0.1), 0 0 20px rgba(255,80,80,0.7); }
+        }
+
+        /* alerts and insight blocks */
+        [data-testid="stAlert"]{
+            border-radius: 16px !important;
+            margin-top: 0.65rem !important;
+            margin-bottom: 0.65rem !important;
+        }
+
+        /* spacing */
+        [data-testid="stVerticalBlock"] > [data-testid="element-container"]{
+            margin-bottom: 0.75rem !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
 def setup_parallax():
     components.html("""
     <script>
