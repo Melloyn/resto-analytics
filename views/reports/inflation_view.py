@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import ui
 from services import analytics_service
 
 def render_inflation(df_full, df_current, target_date, inflation_start_date=None):
