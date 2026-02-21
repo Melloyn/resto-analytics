@@ -525,7 +525,14 @@ def setup_style():
 
         header[data-testid="stHeader"] {
             background: transparent !important;
-            backdrop-filter: blur(6px);
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            box-shadow: none !important;
+            border-bottom: none !important;
+        }
+        [data-testid="stToolbar"],
+        [data-testid="stDecoration"] {
+            display: none !important;
         }
 
         #MainMenu {visibility: hidden;}
@@ -796,29 +803,60 @@ def setup_style():
         .ag-theme-alpine,
         .ag-root-wrapper{
             border-radius: 16px !important;
-            background: rgba(10, 20, 38, 0.92) !important;
+            background: linear-gradient(160deg, rgba(26, 44, 74, 0.42), rgba(13, 24, 43, 0.5)) !important;
+            backdrop-filter: blur(22px) saturate(130%) !important;
+            -webkit-backdrop-filter: blur(22px) saturate(130%) !important;
+            border: 1px solid rgba(180, 220, 255, 0.25) !important;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), inset 0 0 14px rgba(255, 255, 255, 0.07) !important;
             color: #eaf3ff !important;
         }
         .ag-header{
-            background: rgba(24, 36, 58, 0.95) !important;
+            background: linear-gradient(180deg, rgba(38, 62, 96, 0.68), rgba(22, 37, 61, 0.7)) !important;
+            border-bottom: 1px solid rgba(143, 205, 255, 0.28) !important;
         }
         .ag-header-cell-label, .ag-header-cell-text{
             color: #f3f8ff !important;
             font-weight: 600 !important;
+            letter-spacing: 0.01em !important;
         }
         .ag-row{
-            background: rgba(14, 26, 46, 0.82) !important;
-            border-bottom: 1px solid rgba(160, 205, 255, 0.18) !important;
+            background: rgba(24, 40, 64, 0.34) !important;
+            border-bottom: 1px solid rgba(160, 205, 255, 0.12) !important;
             box-shadow: none !important;
         }
+        .ag-row:nth-child(even){
+            background: rgba(18, 32, 54, 0.26) !important;
+        }
         .ag-row-hover{
-            background: rgba(30, 54, 86, 0.95) !important;
-            box-shadow: none !important;
+            background: rgba(46, 77, 120, 0.45) !important;
+            box-shadow: inset 0 0 0 1px rgba(123, 201, 255, 0.25) !important;
         }
         .ag-cell{
             color: #eaf3ff !important;
             background: transparent !important;
             border-right: 1px solid rgba(145, 188, 240, 0.12) !important;
+        }
+        .ag-ltr .ag-cell:last-child{
+            border-right: none !important;
+        }
+        .ag-header-cell{
+            border-right: 1px solid rgba(145, 188, 240, 0.16) !important;
+        }
+        .ag-header-cell:last-child{
+            border-right: none !important;
+        }
+        .ag-root-wrapper-body.ag-layout-normal{
+            background: transparent !important;
+        }
+        .ag-body-viewport::-webkit-scrollbar,
+        .ag-body-horizontal-scroll-viewport::-webkit-scrollbar{
+            width: 10px;
+            height: 10px;
+        }
+        .ag-body-viewport::-webkit-scrollbar-thumb,
+        .ag-body-horizontal-scroll-viewport::-webkit-scrollbar-thumb{
+            background: rgba(120, 190, 255, 0.32);
+            border-radius: 999px;
         }
 
         /* negative pulse for critical cards if down icon exists */
@@ -983,12 +1021,21 @@ def render_aggrid(df, height=400, pagination=False, formatting=None, fit_columns
         height=height,
         theme="alpine", # fallback if custom needed
         custom_css={
-            ".ag-root-wrapper": {"border-radius": "14px", "overflow": "hidden", "border": "1px solid rgba(168, 211, 255, 0.3)", "box-shadow": "0 8px 30px rgba(6, 18, 41, 0.3)", "background-color": "rgba(10,20,38,0.92) !important"},
-            ".ag-header": {"background-color": "rgba(24, 36, 58, 0.95) !important"},
-            ".ag-header-cell-label": {"color": "#f3f8ff !important"},
-            ".ag-row": {"background-color": "rgba(14, 26, 46, 0.82) !important", "color": "#eaf3ff !important"},
-            ".ag-row-hover": {"background-color": "rgba(30, 54, 86, 0.95) !important"},
-            ".ag-cell": {"color": "#eaf3ff !important", "background-color": "transparent !important"},
+            ".ag-root-wrapper": {
+                "border-radius": "14px",
+                "overflow": "hidden",
+                "border": "1px solid rgba(180, 220, 255, 0.25)",
+                "box-shadow": "0 12px 32px rgba(0, 0, 0, 0.45), inset 0 0 14px rgba(255,255,255,0.07)",
+                "background": "linear-gradient(160deg, rgba(26, 44, 74, 0.42), rgba(13, 24, 43, 0.5)) !important",
+            },
+            ".ag-header": {
+                "background": "linear-gradient(180deg, rgba(38, 62, 96, 0.68), rgba(22, 37, 61, 0.7)) !important",
+                "border-bottom": "1px solid rgba(143, 205, 255, 0.28)"
+            },
+            ".ag-header-cell-label": {"color": "#f3f8ff !important", "font-weight": "600"},
+            ".ag-row": {"background-color": "rgba(24, 40, 64, 0.34) !important", "color": "#eaf3ff !important"},
+            ".ag-row-hover": {"background-color": "rgba(46, 77, 120, 0.45) !important"},
+            ".ag-cell": {"color": "#eaf3ff !important", "background-color": "transparent !important", "border-right": "1px solid rgba(145, 188, 240, 0.12)"},
         },
         update_mode=GridUpdateMode.NO_UPDATE,
         allow_unsafe_jscode=True
