@@ -1,15 +1,8 @@
 import streamlit as st
 import pandas as pd
-import ui
 from services import analytics_service
 
 def render_inflation(df_full, df_current, target_date, inflation_start_date=None):
-    placeholder = st.empty()
-    with placeholder.container():
-        ui.render_skeleton_kpis(num_cols=3)
-        ui.render_skeleton_chart()
-        import time; time.sleep(0.01)
-
     target_dt = pd.to_datetime(target_date)
     if inflation_start_date is not None:
         start_dt = pd.to_datetime(inflation_start_date)

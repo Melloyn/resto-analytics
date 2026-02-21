@@ -378,6 +378,7 @@ def setup_style():
             background: transparent;
             padding-bottom: 25px; /* space for soft colored glow shadows */
             padding-top: 5px;
+            overflow: visible !important;
         }
         
         div[data-testid="stTabs"] > div[data-baseweb="tab-list"] div[data-testid="stTabActiveIndicator"] {
@@ -404,6 +405,7 @@ def setup_style():
             transition: all 0.35s cubic-bezier(0.25, 1, 0.35, 1) !important;
             backdrop-filter: blur(20px) saturate(120%);
             -webkit-backdrop-filter: blur(20px) saturate(120%);
+            overflow: visible !important;
         }
 
         div[data-testid="stTabs"] > div[data-baseweb="tab-list"] button[data-baseweb="tab"]:focus {
@@ -434,19 +436,10 @@ def setup_style():
                 inset 0 -5px 15px rgba(100, 180, 255, 0.4),  /* Inner glowing blue from bottom */
                 0 6px 15px rgba(0, 0, 0, 0.5),                 /* Outer dark shadow */
                 0 8px 25px -4px rgba(80, 170, 255, 0.6) !important; /* Intense outer bright glow */
-            transform: translateY(-2px) scale(1.02);
+            transform: translateY(-2px);
             /* Make it feel like colored glass */
             backdrop-filter: blur(25px) saturate(160%);
             -webkit-backdrop-filter: blur(25px) saturate(160%);
-        }
-                inset 0 -3px 8px rgba(255, 255, 255, 0.2),   /* White reflection below */
-                inset 0 -10px 15px rgba(115, 195, 255, 0.15),
-                0 14px 28px -6px rgba(115, 195, 255, 0.5),   /* Large colorful blur drop shadow */
-                0 8px 15px rgba(0, 0, 0, 0.5) !important;    /* Inner solid drop shadow */
-            transform: translateY(-3px);
-            /* Enhance blur since the body is colorful */
-            backdrop-filter: blur(25px) saturate(150%);
-            -webkit-backdrop-filter: blur(25px) saturate(150%);
         }
         
         div[data-testid="stTabs"] > div[data-baseweb="tab-panel"] {
@@ -743,7 +736,7 @@ def setup_style():
         div[data-baseweb="input"] > div:focus-within,
         div[data-baseweb="select"] > div:hover,
         div[data-baseweb="select"] > div:focus-within{
-            transform: translateY(-2px) scale(1.02) !important;
+            transform: translateY(-2px) !important;
             box-shadow:
                 0 10px 36px rgba(0,0,0,0.68),
                 inset 0 0 14px rgba(255,255,255,0.18),
@@ -779,6 +772,14 @@ def setup_style():
                 inset 0 0 14px rgba(255,255,255,0.2),
                 0 0 26px rgba(112,215,255,0.6),
                 0 0 30px rgba(157,80,187,0.45) !important;
+        }
+        [role="tablist"],
+        div[data-baseweb="tab-list"]{
+            overflow: visible !important;
+            padding-top: 6px !important;
+        }
+        [role="tab"]{
+            overflow: visible !important;
         }
 
         /* Sidebar */
