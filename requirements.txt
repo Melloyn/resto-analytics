@@ -8,3 +8,7 @@ pyarrow
 xlsxwriter
 toml
 pytest
+streamlit-lottie
+streamlit-aggrid
+pandera
+streamlit-option-menu

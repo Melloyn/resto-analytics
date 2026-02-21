@@ -1,5 +1,6 @@
 import streamlit as st
 import streamlit.components.v1 as components
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, ColumnsAutoSizeMode, JsCode
 
 def setup_style():
     st.markdown("""
@@ -105,11 +106,14 @@ def setup_style():
         }
 
         [data-testid="stSidebar"] {
-            background: linear-gradient(165deg, rgba(173, 216, 255, 0.10), rgba(119, 186, 255, 0.07)) !important;
-            backdrop-filter: blur(18px) saturate(150%);
-            -webkit-backdrop-filter: blur(18px) saturate(150%);
-            border-right: 1px solid rgba(228, 244, 255, 0.22) !important;
-            box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.14), 8px 0 30px rgba(5, 18, 45, 0.25);
+            /* Ultra-clear glass sidebar */
+            background: linear-gradient(165deg, rgba(160, 200, 255, 0.05), rgba(100, 160, 255, 0.02)) !important;
+            backdrop-filter: blur(24px) saturate(140%);
+            -webkit-backdrop-filter: blur(24px) saturate(140%);
+            border-right: 1px solid rgba(255, 255, 255, 0.15) !important;
+            box-shadow: 
+                inset -1px 0 2px rgba(255, 255, 255, 0.2), 
+                15px 0 40px rgba(0, 5, 15, 0.4);
         }
 
         [data-testid="stSidebar"] * {
@@ -118,20 +122,26 @@ def setup_style():
 
         [data-testid="stMetric"],
         [data-testid="stVerticalBlock"] > [data-testid="element-container"] > div:has([data-testid="stDataFrame"]) {
-            border: 1px solid var(--glass-border) !important;
-            box-shadow: var(--glass-shadow) !important;
+            /* Remove simple border, replace with complex box-shadow for 3D liquid edge */
+            border: 1px solid rgba(255, 255, 255, 0.12) !important;
+            border-top: 1px solid rgba(255, 255, 255, 0.25) !important;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.2) !important;
             animation: glassFadeUp var(--anim-mid) var(--ease-fluid);
         }
 
         [data-testid="stMetric"] {
             position: relative;
             overflow: hidden;
-            background: linear-gradient(155deg, var(--glass-bg-strong), rgba(129, 189, 255, 0.08)) !important;
-            backdrop-filter: blur(18px) saturate(140%);
-            -webkit-backdrop-filter: blur(18px) saturate(140%);
+            background: linear-gradient(155deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.01)) !important;
+            backdrop-filter: blur(25px) saturate(130%);
+            -webkit-backdrop-filter: blur(25px) saturate(130%);
             padding: 15px !important;
-            border-radius: 18px !important;
-            transition: transform var(--anim-fast) var(--ease-fluid), box-shadow var(--anim-mid) var(--ease-soft), border-color var(--anim-fast) ease;
+            border-radius: 20px !important;
+            box-shadow: 
+                inset 0 1px 1px rgba(255, 255, 255, 0.4),   /* Top highlight */
+                inset 0 -1px 2px rgba(255, 255, 255, 0.05), /* Bottom soft highlight */
+                0 8px 24px rgba(0, 0, 0, 0.25) !important;  /* Soft deep shadow */
+            transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
         }
 
         [data-testid="stMetric"]::after {
@@ -139,26 +149,32 @@ def setup_style():
             position: absolute;
             inset: 0;
             border-radius: inherit;
-            background: linear-gradient(125deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.01) 45%);
+            /* Enhance the diagonal liquid shine */
+            background: linear-gradient(125deg, rgba(255, 255, 255, 0.35) 0%, rgba(255, 255, 255, 0.0) 30%, rgba(255, 255, 255, 0.0) 70%, rgba(255, 255, 255, 0.05) 100%);
             pointer-events: none;
         }
 
         [data-testid="stMetric"]:hover {
-            transform: translateY(-2px) scale(1.006);
-            border-color: rgba(222, 244, 255, 0.52) !important;
-            box-shadow: 0 20px 45px rgba(7, 23, 51, 0.46) !important;
-            background: linear-gradient(160deg, rgba(189, 228, 255, 0.19), rgba(130, 192, 255, 0.10)) !important;
+            transform: translateY(-3px) scale(1.01);
+            border-top: 1px solid rgba(255, 255, 255, 0.4) !important;
+            box-shadow: 
+                inset 0 2px 3px rgba(255, 255, 255, 0.5),
+                inset 0 -2px 5px rgba(255, 255, 255, 0.1),
+                0 15px 35px rgba(0, 0, 0, 0.35),
+                0 10px 20px rgba(115, 195, 255, 0.1) !important; /* Soft blue glow on hover */
+            background: linear-gradient(160deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02)) !important;
         }
 
         [data-testid="stMetricLabel"] {
             font-size: 14px;
-            color: var(--text-soft) !important;
+            color: rgba(255, 255, 255, 0.6) !important;
         }
 
         [data-testid="stMetricValue"] {
             font-size: 26px;
             font-weight: 700;
-            color: var(--text-main);
+            color: #ffffff;
+            text-shadow: 0 2px 10px rgba(255, 255, 255, 0.2);
         }
 
         [data-testid="stMetricDelta"] {
@@ -173,33 +189,48 @@ def setup_style():
         }
 
         [data-testid="stExpander"] {
-            background: linear-gradient(160deg, rgba(178, 220, 255, 0.09), rgba(120, 183, 255, 0.06)) !important;
-            border: 1px solid rgba(228, 244, 255, 0.25) !important;
-            border-radius: 16px !important;
-            backdrop-filter: blur(13px) saturate(130%);
-            -webkit-backdrop-filter: blur(13px) saturate(130%);
-            box-shadow: 0 10px 32px rgba(8, 21, 48, 0.28);
+            /* Glassy container for expanders */
+            background: linear-gradient(160deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01)) !important;
+            border: 1px solid rgba(255, 255, 255, 0.15) !important;
+            border-top: 1px solid rgba(255, 255, 255, 0.25) !important;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.3) !important;
+            border-radius: 18px !important;
+            backdrop-filter: blur(20px) saturate(130%);
+            -webkit-backdrop-filter: blur(20px) saturate(130%);
+            box-shadow: 
+                inset 0 1px 1px rgba(255, 255, 255, 0.3),
+                0 10px 32px rgba(0, 10, 30, 0.3);
             animation: glassFadeUp var(--anim-mid) var(--ease-fluid);
-            transition: transform var(--anim-fast) var(--ease-fluid), box-shadow var(--anim-mid) var(--ease-soft), border-color var(--anim-fast) ease;
+            transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
             overflow: hidden !important;
+        }
+
+        [data-testid="stExpander"]:hover {
+            border-top: 1px solid rgba(255, 255, 255, 0.4) !important;
+            box-shadow: 
+                inset 0 1px 2px rgba(255, 255, 255, 0.4),
+                0 15px 40px rgba(0, 10, 30, 0.4);
+            transform: translateY(-2px);
         }
 
         [data-testid="stExpander"] details {
-            border-radius: 16px !important;
+            border-radius: 18px !important;
             overflow: hidden !important;
-            background: linear-gradient(165deg, rgba(170, 212, 255, 0.12), rgba(118, 182, 255, 0.08)) !important;
-        }
-
-        [data-testid="stExpander"] summary {
-            border-radius: 14px !important;
-            border: none !important;
             background: transparent !important;
         }
 
+        [data-testid="stExpander"] summary {
+            border-radius: 16px !important;
+            border: none !important;
+            background: transparent !important;
+            padding: 10px 15px !important;
+        }
+
         [data-testid="stExpander"] [data-testid="stExpanderDetails"] {
-            background: linear-gradient(175deg, rgba(182, 221, 255, 0.10), rgba(119, 182, 255, 0.07)) !important;
-            border-top: 1px solid rgba(226, 244, 255, 0.17);
-            border-radius: 0 0 14px 14px !important;
+            background: linear-gradient(175deg, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.2)) !important;
+            border-top: 1px solid rgba(0, 0, 0, 0.3);
+            border-radius: 0 0 16px 16px !important;
+            box-shadow: inset 0 5px 10px rgba(0,0,0,0.1);
         }
 
         /* In sidebar we keep popovers/calendars visible, otherwise date picker clips */
@@ -215,27 +246,211 @@ def setup_style():
         }
 
         button[kind="primary"] {
-            background: linear-gradient(135deg, #7ec9ff 0%, #64b8ff 48%, #95dcff 100%) !important;
-            color: #06203e !important;
-            border: 1px solid rgba(230, 247, 255, 0.6) !important;
-            box-shadow: 0 10px 24px rgba(52, 148, 220, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.7);
-            transition: transform var(--anim-fast) var(--ease-fluid), box-shadow var(--anim-mid) var(--ease-soft), filter var(--anim-fast) ease;
+            /* Glowing primary button */
+            background: linear-gradient(135deg, rgba(80, 170, 255, 0.7) 0%, rgba(30, 90, 200, 0.8) 100%) !important;
+            color: #ffffff !important;
+            border: 1px solid rgba(255, 255, 255, 0.2) !important;
+            border-top: 1px solid rgba(255, 255, 255, 0.5) !important;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.4) !important;
+            border-radius: 999px !important; /* Pill shape */
+            box-shadow: 
+                inset 0 2px 5px rgba(255, 255, 255, 0.5),
+                inset 0 -4px 8px rgba(0, 0, 0, 0.3),
+                0 8px 18px rgba(30, 100, 220, 0.4) !important; /* Colored soft drop shadow */
+            transition: all 0.35s cubic-bezier(0.25, 1, 0.35, 1) !important;
             font-weight: 700;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.4);
+            backdrop-filter: blur(20px) saturate(140%);
+            -webkit-backdrop-filter: blur(20px) saturate(140%);
         }
 
         button[kind="primary"]:hover {
-            box-shadow: 0 16px 30px rgba(60, 156, 231, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.78);
-            transform: translateY(-1px) scale(1.005);
-            filter: saturate(1.05);
+            transform: translateY(-2px) scale(1.02);
+            filter: brightness(1.15);
+            box-shadow: 
+                inset 0 2px 6px rgba(255, 255, 255, 0.7),
+                inset 0 -4px 8px rgba(0, 0, 0, 0.3),
+                0 14px 28px rgba(30, 100, 220, 0.6) !important; /* Stronger colored glow */
         }
 
         button[kind="secondary"] {
-            background: linear-gradient(150deg, rgba(192, 228, 255, 0.16), rgba(141, 197, 255, 0.09)) !important;
-            border: 1px solid rgba(224, 243, 255, 0.32) !important;
-            border-radius: 12px !important;
-            color: var(--text-main) !important;
-            backdrop-filter: blur(10px) saturate(120%);
-            -webkit-backdrop-filter: blur(10px) saturate(120%);
+            /* Clear glass secondary button */
+            background: linear-gradient(150deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02)) !important;
+            border: 1px solid rgba(255, 255, 255, 0.15) !important;
+            border-top: 1px solid rgba(255, 255, 255, 0.3) !important;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.2) !important;
+            border-radius: 999px !important; /* Pill shape */
+            color: rgba(255, 255, 255, 0.8) !important;
+            backdrop-filter: blur(15px) saturate(120%);
+            -webkit-backdrop-filter: blur(15px) saturate(120%);
+            box-shadow: 
+                inset 0 1px 2px rgba(255, 255, 255, 0.3),
+                inset 0 -1px 2px rgba(0, 0, 0, 0.1),
+                0 5px 12px rgba(0, 5, 15, 0.2) !important; /* Deep drop shadow */
+            transition: all 0.3s cubic-bezier(0.25, 1, 0.35, 1) !important;
+            font-weight: 600;
+        }
+
+        button[kind="secondary"]:hover {
+            background: linear-gradient(150deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.05)) !important;
+            border-top: 1px solid rgba(255, 255, 255, 0.5) !important;
+            color: #ffffff !important;
+            transform: translateY(-2px);
+            box-shadow: 
+                inset 0 1px 3px rgba(255, 255, 255, 0.5),
+                inset 0 -1px 2px rgba(0, 0, 0, 0.1),
+                0 10px 20px rgba(0, 5, 20, 0.3) !important;
+        }
+
+        .stSelectbox label, .stRadio label, .stDateInput label, .stTextInput label, .stNumberInput label {
+            font-weight: 500 !important;
+            color: rgba(255, 255, 255, 0.6) !important;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+            margin-bottom: 0.5rem !important;
+            font-size: 13px !important;
+        }
+
+        [data-baseweb="select"] > div,
+        [data-baseweb="input"] > div,
+        [data-baseweb="base-input"] > input,
+        [data-baseweb="input"] > input {
+            /* Pill-shaped deeply recessed glass inputs with bottom neon glow */
+            /* Background is very dark to contrast with the glow */
+            background: linear-gradient(180deg, rgba(15, 25, 45, 0.4) 0%, rgba(20, 35, 65, 0.2) 100%) !important;
+            
+            /* The borders create the "glass edge" effect */
+            border: 1px solid rgba(255, 255, 255, 0.05) !important;
+            border-top: 1px solid rgba(0, 0, 0, 0.8) !important;       /* Deep shadow at top inside edge */
+            border-bottom: 1px solid rgba(130, 200, 255, 0.4) !important; /* The signature neon blue line at the bottom */
+            
+            border-radius: 8px !important; /* Slightly rounded rectangle, not full pill for inputs in refernce */
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            color: #ffffff !important;
+            
+            /* Inner shadow for depth, and soft outer glow from the blue bottom line */
+            box-shadow: 
+                inset 0 6px 10px rgba(0, 0, 0, 0.6),                  /* Deep inner top shadow */
+                inset 0 -2px 5px rgba(100, 180, 255, 0.15),           /* Inner blue reflection */
+                0 4px 12px rgba(0, 0, 0, 0.5),                        /* Drop shadow */
+                0 4px 15px -4px rgba(80, 170, 255, 0.2) !important;     /* Neon glow bleeding down */
+            
+            transition: all 0.3s cubic-bezier(0.25, 1, 0.35, 1);
+            min-height: 42px !important;
+        }
+
+        [data-baseweb="select"] > div:hover,
+        [data-baseweb="input"] > div:hover,
+        [data-baseweb="base-input"] > input:hover {
+            border-bottom: 1px solid rgba(150, 220, 255, 0.6) !important; /* Brighter bottom line on hover */
+            background: linear-gradient(180deg, rgba(20, 30, 55, 0.5) 0%, rgba(30, 45, 80, 0.3) 100%) !important;
+            box-shadow: 
+                inset 0 6px 12px rgba(0, 0, 0, 0.7),
+                inset 0 -3px 8px rgba(100, 180, 255, 0.25),
+                0 6px 14px rgba(0, 0, 0, 0.6),
+                0 6px 20px -3px rgba(80, 170, 255, 0.4) !important; /* Stronger neon glow */
+        }
+
+        [data-baseweb="select"] > div:focus-within,
+        [data-baseweb="input"] > div:focus-within,
+        [data-baseweb="base-input"] > input:focus {
+            /* Active/Focus state gets brighter full border and stronger glow */
+            border: 1px solid rgba(100, 180, 255, 0.5) !important;
+            border-bottom: 1px solid rgba(150, 220, 255, 0.9) !important;
+            box-shadow: 
+                inset 0 4px 8px rgba(0, 0, 0, 0.5),
+                inset 0 -2px 10px rgba(100, 180, 255, 0.3),
+                0 0 20px rgba(100, 180, 255, 0.35) !important; /* Full outer neon glow */
+        }
+
+        /* Adjust icon and placeholder colors inside inputs */
+        [data-baseweb="select"] span, [data-baseweb="input"] ::placeholder {
+            color: rgba(255, 255, 255, 0.4) !important;
+        }
+
+        /* --- TABS GLASSMORPHISM REDESIGN --- */
+        div[data-testid="stTabs"] {
+            margin-top: 1rem;
+        }
+        
+        div[data-testid="stTabs"] > div[data-baseweb="tab-list"] {
+            gap: 16px;
+            background: transparent;
+            padding-bottom: 25px; /* space for soft colored glow shadows */
+            padding-top: 5px;
+        }
+        
+        div[data-testid="stTabs"] > div[data-baseweb="tab-list"] div[data-testid="stTabActiveIndicator"] {
+            display: none !important; /* Hide default ugly solid line */
+        }
+        
+        div[data-testid="stTabs"] > div[data-baseweb="tab-list"] button[data-baseweb="tab"] {
+            /* Clear dark glassy base for inactive */
+            background: linear-gradient(180deg, rgba(30, 45, 75, 0.4) 0%, rgba(15, 25, 45, 0.6) 100%) !important;
+            border: 1px solid rgba(255, 255, 255, 0.05) !important;
+            border-top: 1px solid rgba(255, 255, 255, 0.15) !important;
+            border-bottom: 2px solid rgba(0, 0, 0, 0.4) !important;
+            border-radius: 8px !important; /* Retained from the reference image */
+            padding: 10px 26px !important;
+            color: rgba(255, 255, 255, 0.5) !important;
+            font-weight: 600 !important;
+            font-size: 15px !important;
+            height: auto !important;
+            margin: 0 !important;
+            box-shadow: 
+                inset 0 1px 1px rgba(255, 255, 255, 0.1),   /* sharp upper inner edge */
+                inset 0 -1px 2px rgba(255, 255, 255, 0.05),  /* soft lower inner edge */
+                0 4px 15px rgba(0, 0, 0, 0.4) !important;   /* standard drop shadow */
+            transition: all 0.35s cubic-bezier(0.25, 1, 0.35, 1) !important;
+            backdrop-filter: blur(20px) saturate(120%);
+            -webkit-backdrop-filter: blur(20px) saturate(120%);
+        }
+
+        div[data-testid="stTabs"] > div[data-baseweb="tab-list"] button[data-baseweb="tab"]:focus {
+            outline: none !important;
+        }
+
+        div[data-testid="stTabs"] > div[data-baseweb="tab-list"] button[data-baseweb="tab"]:hover {
+            color: rgba(255, 255, 255, 0.8) !important;
+            background: linear-gradient(180deg, rgba(35, 50, 85, 0.5) 0%, rgba(20, 30, 55, 0.7) 100%) !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border-top: 1px solid rgba(255, 255, 255, 0.25) !important;
+            transform: translateY(-2px);
+            box-shadow: 
+                inset 0 1px 2px rgba(255, 255, 255, 0.2),
+                inset 0 -2px 3px rgba(255, 255, 255, 0.05),
+                0 8px 20px rgba(0, 0, 0, 0.5) !important;
+        }
+        
+        div[data-testid="stTabs"] > div[data-baseweb="tab-list"] button[data-baseweb="tab"][aria-selected="true"] {
+            /* Active glowing glowing inner shadow look */
+            background: linear-gradient(180deg, rgba(20, 40, 80, 0.6) 0%, rgba(10, 20, 50, 0.4) 100%) !important;
+            color: #ffffff !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border-top: 1px solid rgba(255, 255, 255, 0.2) !important;
+            border-bottom: 2px solid rgba(130, 200, 255, 0.9) !important; /* Thick glowing base */
+            box-shadow: 
+                inset 0 1px 1px rgba(255, 255, 255, 0.2),    /* Top edge */
+                inset 0 -5px 15px rgba(100, 180, 255, 0.4),  /* Inner glowing blue from bottom */
+                0 6px 15px rgba(0, 0, 0, 0.5),                 /* Outer dark shadow */
+                0 8px 25px -4px rgba(80, 170, 255, 0.6) !important; /* Intense outer bright glow */
+            transform: translateY(-2px) scale(1.02);
+            /* Make it feel like colored glass */
+            backdrop-filter: blur(25px) saturate(160%);
+            -webkit-backdrop-filter: blur(25px) saturate(160%);
+        }
+                inset 0 -3px 8px rgba(255, 255, 255, 0.2),   /* White reflection below */
+                inset 0 -10px 15px rgba(115, 195, 255, 0.15),
+                0 14px 28px -6px rgba(115, 195, 255, 0.5),   /* Large colorful blur drop shadow */
+                0 8px 15px rgba(0, 0, 0, 0.5) !important;    /* Inner solid drop shadow */
+            transform: translateY(-3px);
+            /* Enhance blur since the body is colorful */
+            backdrop-filter: blur(25px) saturate(150%);
+            -webkit-backdrop-filter: blur(25px) saturate(150%);
+        }
+        
+        div[data-testid="stTabs"] > div[data-baseweb="tab-panel"] {
+            outline: none !important;
         }
 
         .stSelectbox label, .stRadio label {
@@ -399,6 +614,60 @@ def setup_style():
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        /* --- SKELETON UI --- */
+        @keyframes skeletonPulse {
+            0% { opacity: 0.6; filter: brightness(1); }
+            50% { opacity: 0.3; filter: brightness(0.8); }
+            100% { opacity: 0.6; filter: brightness(1); }
+        }
+
+        .skeleton-box {
+            animation: skeletonPulse 1.8s ease-in-out infinite;
+            background: linear-gradient(160deg, rgba(30, 45, 75, 0.4) 0%, rgba(15, 25, 45, 0.6) 100%) !important;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
+            border-bottom: 2px solid rgba(130, 200, 255, 0.2);
+            border-radius: 20px;
+            padding: 20px;
+            margin-bottom: 1rem;
+            box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1), 0 4px 15px rgba(0, 0, 0, 0.4);
+            height: 100%;
+            min-height: 120px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .skeleton-box::after {
+            content: "";
+            position: absolute;
+            top: 0; left: -100%; width: 50%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+            animation: skeletonSweep 2s infinite;
+        }
+
+        @keyframes skeletonSweep {
+            100% { left: 200%; }
+        }
+
+        .skeleton-line {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            height: 14px;
+            margin-bottom: 12px;
+        }
+
+        .skeleton-title { width: 50%; height: 12px; margin-bottom: 20px; }
+        .skeleton-value { width: 70%; height: 32px; border-radius: 12px; margin-bottom: 15px; background: rgba(255, 255, 255, 0.15); }
+        .skeleton-delta { width: 40%; height: 12px; }
+
+        .skeleton-chart {
+            min-height: 350px;
+            justify-content: flex-end;
+        }
+        
     </style>
     """, unsafe_allow_html=True)
 
@@ -476,3 +745,107 @@ def update_chart_layout(fig):
         )
     )
     return fig
+
+def render_aggrid(df, height=400, pagination=False, formatting=None, fit_columns=False):
+    if df.empty:
+        st.info("Нет данных для отображения")
+        return
+        
+    gb = GridOptionsBuilder.from_dataframe(df)
+    
+    # Enable filtering and sorting for all columns
+    gb.configure_default_column(filterable=True, sortable=True, resizable=True, wrapText=True, autoHeight=True)
+    
+    import pandas as pd
+    
+    for col in df.columns:
+        is_num = pd.api.types.is_numeric_dtype(df[col])
+        flex_val = 1 if is_num else 3
+        min_w = 80 if is_num else 150
+        max_w = {"maxWidth": 120} if is_num else {}
+        
+        col_kwargs = {"minWidth": min_w, "flex": flex_val, **max_w}
+        
+        if formatting and col in formatting:
+            fmt = formatting[col]
+            if fmt.startswith("%.") and ("f" in fmt or "%%" in fmt):
+                # Basic numeric formatting helper for AgGrid
+                js_fmt = f"val.toLocaleString('ru-RU', {{minimumFractionDigits: {fmt[2]}, maximumFractionDigits: {fmt[2]}}})"
+                if "%%" in fmt:
+                     js_fmt = f"({js_fmt} + ' %')"
+                elif "₽" in fmt:
+                     js_fmt = f"({js_fmt} + ' ₽')"
+                
+                jscode_str = f"""function(params) {{
+                    if (params.value == null || params.value === 'nan' || params.value === 'NaN') return '';
+                    const val = Number(params.value);
+                    if (isNaN(val)) return params.value;
+                    return {js_fmt};
+                }}"""
+                gb.configure_column(col, valueFormatter=JsCode(jscode_str), **col_kwargs)
+            else:
+                 gb.configure_column(col, **col_kwargs)
+        elif pd.api.types.is_numeric_dtype(df[col]):
+            jscode_str = """function(params) {
+                if (params.value == null || params.value === 'nan' || params.value === 'NaN') return '';
+                const val = Number(params.value);
+                if (isNaN(val)) return params.value;
+                return val.toLocaleString('ru-RU', {minimumFractionDigits: 0, maximumFractionDigits: 2});
+            }"""
+            gb.configure_column(col, valueFormatter=JsCode(jscode_str), **col_kwargs)
+        else:
+             gb.configure_column(col, **col_kwargs)
+    
+    if pagination:
+        gb.configure_pagination(paginationAutoPageSize=False, paginationPageSize=25)
+        
+    gb.configure_grid_options(wrapHeaderText=True, autoHeaderHeight=True)
+    gridOptions = gb.build()
+    
+    # Using dark theme to match the rest of the app
+    AgGrid(
+        df,
+        gridOptions=gridOptions,
+        height=height,
+        theme="alpine", # fallback if custom needed
+        custom_css={
+            ".ag-root-wrapper": {"border-radius": "14px", "overflow": "hidden", "border": "1px solid rgba(228, 243, 255, 0.28)", "box-shadow": "0 8px 30px rgba(6, 18, 41, 0.3)"},
+            ".ag-header": {"background-color": "rgba(4, 18, 42, 0.6) !important"},
+            ".ag-header-cell-label": {"color": "#f3f8ff !important"},
+            ".ag-row": {"background-color": "rgba(167, 210, 255, 0.05) !important", "color": "#f3f8ff !important"},
+            ".ag-row-hover": {"background-color": "rgba(167, 210, 255, 0.15) !important"},
+        },
+        update_mode=GridUpdateMode.NO_UPDATE,
+        allow_unsafe_jscode=True
+    )
+
+def render_skeleton_kpis(num_cols=3):
+    """Отрисовывает анимированные плейсхолдеры для KPI карточек."""
+    cols = st.columns(num_cols)
+    for col in cols:
+        with col:
+            st.markdown(f'''
+            <div class="skeleton-box">
+                <div class="skeleton-title skeleton-line"></div>
+                <div class="skeleton-value skeleton-line"></div>
+                <div class="skeleton-delta skeleton-line"></div>
+            </div>
+            ''', unsafe_allow_html=True)
+
+def render_skeleton_chart():
+    """Отрисовывает анимированный плейсхолдер для большого графика."""
+    st.markdown(f'''
+    <div class="skeleton-box skeleton-chart">
+        <div class="skeleton-title skeleton-line" style="width: 30%;"></div>
+        <div style="display: flex; gap: 10px; height: 80%; align-items: flex-end;">
+            <div class="skeleton-line" style="width: 10%; height: 30%;"></div>
+            <div class="skeleton-line" style="width: 10%; height: 60%;"></div>
+            <div class="skeleton-line" style="width: 10%; height: 80%;"></div>
+            <div class="skeleton-line" style="width: 10%; height: 40%;"></div>
+            <div class="skeleton-line" style="width: 10%; height: 90%;"></div>
+            <div class="skeleton-line" style="width: 10%; height: 50%;"></div>
+            <div class="skeleton-line" style="width: 10%; height: 75%;"></div>
+            <div class="skeleton-line" style="width: 10%; height: 100%;"></div>
+        </div>
+    </div>
+    ''', unsafe_allow_html=True)

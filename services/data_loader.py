@@ -4,6 +4,7 @@ import re
 import os
 import requests
 import json
+import pandera as pa
 from io import BytesIO
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple, Union
@@ -169,6 +170,15 @@ def process_single_file(file_content: Union[BytesIO, str], filename: str = "") -
             if col in df.columns:
                 df[col] = df[col].astype(str).str.replace(r'\s+', '', regex=True).str.replace(',', '.')
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+        # 5b. PANDERA VALIDATION
+        schema = pa.DataFrameSchema({
+            col: pa.Column(float, coerce=True, nullable=True) for col in required_cols
+        })
+        try:
+            df = schema.validate(df)
+        except pa.errors.SchemaError as e:
+            warnings.append(f"Ошибка валидации схемы Pandera: {str(e)}")
 
         col_name = df.columns[0]
         

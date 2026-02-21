@@ -1,6 +1,7 @@
 from services import analytics_service, data_loader
 import pandas as pd
 import requests
+import threading
 
 def format_report(df_full, target_date):
     """
@@ -113,19 +114,11 @@ def send_to_all(token, chat_ids_raw, message):
     if not ids:
         return False, "❌ Список ID пуст."
 
-    success_count = 0
-    errors = []
+    def background_send():
+        for chat_id in ids:
+            send_telegram_message(token, chat_id, message)
 
-    for chat_id in ids:
-        ok, msg = send_telegram_message(token, chat_id, message)
-        if ok:
-            success_count += 1
-        else:
-            errors.append(msg)
+    t = threading.Thread(target=background_send, daemon=True)
+    t.start()
     
-    if success_count == len(ids):
-        return True, f"✅ Отправлено всем ({success_count} чел.)"
-    elif success_count > 0:
-        return True, f"⚠️ Отправлено {success_count} из {len(ids)}. Ошибки: {'; '.join(errors)}"
-    else:
-        return False, f"❌ Ошибка отправки: {'; '.join(errors)}"
+    return True, f"✅ Отправка запущена в фоне ({len(ids)} чел.)"
