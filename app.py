@@ -13,6 +13,7 @@ from services import data_loader, analytics_service, category_service
 import auth
 import ui
 from utils import session_manager
+from use_cases import auth_flow, bootstrap
 from views import admin_view, login_view
 from datetime import datetime, timedelta
 
@@ -23,44 +24,19 @@ st.set_page_config(page_title="RestoAnalytics: Место", layout="wide", initi
 ui.setup_style()
 ui.setup_parallax()
 
-# --- АВТОМАТИЗАЦИЯ И БД ---
-auth.init_auth_db()
-# Pull users DB from cloud before auth checks, so registered users survive restarts.
-_yd_boot_token = auth.get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
-if _yd_boot_token:
-    auth.sync_users_from_yandex(_yd_boot_token, force=True)
-# Ensure schema exists after possible DB overwrite.
-auth.init_auth_db()
-auth.bootstrap_admin()
-
-# --- СОСТОЯНИЕ (SESSION STATE) ---
-session_manager.init_session_state()
-
-# --- ВХОД / АВТОРИЗАЦИЯ ---
-# 1. Проверяем cookie (Refresh / новый рендер)
-session_manager.check_and_restore_session()
-
-# 2. Если все еще не вошли -> Показываем логин
-if st.session_state.auth_user is None:
-    login_view.render_auth_screen()
+# --- STARTUP ORCHESTRATION ---
+startup_result = bootstrap.run_startup()
+if startup_result.status == "STOP":
     st.stop()
 
-# 3. Валидация текущей сессии
-session_manager.validate_current_session()
+# --- ВХОД / АВТОРИЗАЦИЯ ---
+# 1. Orchestration: init session -> restore -> validate
+auth_result = auth_flow.ensure_authenticated_session()
 
-# --- AUTO SYNC CATEGORIES FROM YANDEX ---
-if not st.session_state.categories_synced:
-    yd_token = auth.get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
-    if yd_token:
-        category_service.sync_from_yandex(yd_token)
-    st.session_state.categories_synced = True
-
-# --- AUTO SYNC USERS DB FROM YANDEX ---
-if not st.session_state.users_synced:
-    yd_token = auth.get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
-    if yd_token:
-        auth.sync_users_from_yandex(yd_token)
-    st.session_state.users_synced = True
+# 2. Если все еще не вошли -> Показываем логин
+if auth_result.status == "STOP":
+    login_view.render_auth_screen()
+    st.stop()
 
 # === ГЛАВНЫЙ ИНТЕРФЕЙС ===
 if st.session_state.is_admin and st.session_state.admin_fullscreen:
