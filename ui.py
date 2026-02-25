@@ -986,7 +986,7 @@ def update_chart_layout(fig):
     )
     return fig
 
-def render_aggrid(df, height=400, pagination=False, formatting=None, fit_columns=False):
+def render_aggrid(df, height=400, pagination=False, formatting=None, fit_columns=False, theme="balham"):
     if df.empty:
         st.info("Нет данных для отображения")
         return
@@ -1042,14 +1042,18 @@ def render_aggrid(df, height=400, pagination=False, formatting=None, fit_columns
     gb.configure_grid_options(wrapHeaderText=True, autoHeaderHeight=True)
     gridOptions = gb.build()
     
+    # Safe fallback for themes
+    valid_themes = ["streamlit", "alpine", "balham", "material"]
+    safe_theme = theme if theme in valid_themes else "balham"
+
     # Using dark theme to match the rest of the app
     AgGrid(
         df,
         gridOptions=gridOptions,
         height=height,
-        theme="balham-dark",
+        theme=safe_theme,
         custom_css={
-            ".ag-theme-alpine, .ag-theme-balham-dark": {
+            ".ag-theme-alpine, .ag-theme-balham": {
                 "--ag-background-color": "rgba(11, 20, 35, 0.9)",
                 "--ag-foreground-color": "#eaf3ff",
                 "--ag-header-background-color": "rgba(24, 42, 70, 0.92)",

@@ -1,6 +1,5 @@
 import streamlit as st
 import auth
-import sqlite3
 import streamlit.components.v1 as components
 
 def render_auth_screen():
@@ -42,10 +41,8 @@ def render_auth_screen():
             password = st.text_input("Пароль", type="password")
             submitted = st.form_submit_button("Войти")
             if submitted:
-                user, err = auth.authenticate_user(login, password)
-                if err:
-                    st.error(err)
-                else:
+                try:
+                    user = auth.authenticate_user(login, password)
                     token = auth.create_runtime_session(
                         user["id"],
                         user_agent=st.context.headers.get("user-agent"),
@@ -85,6 +82,8 @@ def render_auth_screen():
                     import time
                     time.sleep(1) # Give JS time to execute
                     st.rerun()
+                except auth.InvalidCredentialsError as e:
+                    st.error(str(e))
 
     with tab_register:
         with st.form("register_form", clear_on_submit=True):
@@ -106,5 +105,5 @@ def render_auth_screen():
                     try:
                         auth.create_user(full_name.strip(), login.strip(), email.strip(), phone.strip(), password)
                         st.success("Регистрация отправлена. Ожидайте одобрения администратора.")
-                    except sqlite3.IntegrityError:
+                    except auth.UserAlreadyExistsError:
                         st.error("Логин или почта уже заняты.")

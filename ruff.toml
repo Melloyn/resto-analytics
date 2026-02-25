@@ -1,0 +1,15 @@
+[lint]
+select = ["TID"]
+
+[lint.flake8-tidy-imports.banned-api]
+# Ban Streamlit imports in all modules except presentation/UI.
+# Banned APIs configuration inside services/
+"streamlit" = { msg = "Layer Violation: Streamlit is forbidden in Application/Domain layers." }
+
+[lint.per-file-ignores]
+# Allow Streamlit in Presentation Layer
+"app.py" = ["TID251"]
+"ui.py" = ["TID251"]
+"auth.py" = ["TID251"]
+"views/*" = ["TID251"]
+"components/*" = ["TID251"]

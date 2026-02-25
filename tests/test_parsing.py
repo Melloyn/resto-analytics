@@ -41,10 +41,14 @@ def test_parse_turnover_basic():
 
 def _build_ttk_like_df():
     rows = []
-    rows.append(["Наименование блюда", "Суп дня"])
-    rows.append(["Наименование продукта", "Бульон", "", "", "", "", "", "", "", "", "", "", "", "", 0.5, "л"])
-    rows.append(["", "Морковь", "", "", "", "", "", "", "", "", "", "", "", "", 0.1, "кг"])
-    df = pd.DataFrame(rows)
+    # Ensure uniform shape like read_excel would produce (16 columns minimum)
+    data = [
+        ["Наименование блюда", "Суп дня", "", "", "", "", "dummy"],
+        ["Наименование продукта", "Бульон", "л", "", "", 0.5, "dummy"],
+        ["", "Морковь", "кг", "", "", 0.1, "dummy"],
+        ["", "Выход", "", "", "", "", "dummy"]
+    ]
+    df = pd.DataFrame(data)
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as w:
         df.to_excel(w, index=False, header=False)
@@ -54,6 +58,12 @@ def _build_ttk_like_df():
 
 def test_parse_ttk_basic():
     buf = _build_ttk_like_df()
+    df_raw = pd.read_excel(buf, header=None)
+    print("MOCKED DF:\n", df_raw)
+    
+    # Re-build buf since read_excel consumed it
+    buf = _build_ttk_like_df()
+    
     res, err = parsing_service.parse_ttk(buf, "ttk.xlsx")
     assert err is None
     assert isinstance(res, list)

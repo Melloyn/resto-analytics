@@ -8,6 +8,12 @@ import requests
 from datetime import datetime, timedelta
 import base64
 
+class UserAlreadyExistsError(Exception):
+    pass
+
+class InvalidCredentialsError(Exception):
+    pass
+
 USERS_DB = "users.db"
 YANDEX_USERS_PATH = "RestoAnalytic/config/users.db"
 PASSWORD_ITERATIONS = 200_000
@@ -167,14 +173,17 @@ def create_user(full_name, login, email, phone, password, role="user", status="p
     salt_hex, pw_hash = _make_password(password)
     created_at = datetime.utcnow().isoformat()
     with _db_conn() as conn:
-        conn.execute(
-            """
-            INSERT INTO users (full_name, login, email, phone, password_salt, password_hash, role, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (full_name, login, email, phone, salt_hex, pw_hash, role, status, created_at),
-        )
-        conn.commit()
+        try:
+            conn.execute(
+                """
+                INSERT INTO users (full_name, login, email, phone, password_salt, password_hash, role, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (full_name, login, email, phone, salt_hex, pw_hash, role, status, created_at),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            raise UserAlreadyExistsError("User with this login or email already exists")
     token = get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
     if token:
         sync_users_to_yandex(token)
@@ -194,7 +203,7 @@ def authenticate_user(login, password):
                 # 5 minutes block after 5 failed attempts
                 if attempts >= 5 and (now_ts - last_attempt_time) < 300:
                    remaining = int(300 - (now_ts - last_attempt_time))
-                   return None, f"⚠️ Слишком много попыток входа. Попробуйте через {remaining} секунд."
+                   raise InvalidCredentialsError(f"⚠️ Слишком много попыток входа. Попробуйте через {remaining} секунд.")
                 elif attempts >= 5 and (now_ts - last_attempt_time) >= 300:
                    # Reset if cooled down
                    conn.execute("UPDATE login_attempts SET attempts = 0 WHERE login = ?", (login,))
@@ -214,7 +223,7 @@ def authenticate_user(login, password):
 
     if not row:
         _record_failed_attempt(login, now_iso)
-        return None, "Неверный логин или пароль."
+        raise InvalidCredentialsError("Неверный логин или пароль.")
 
     user = {
         "id": row[0], "full_name": row[1], "login": row[2], "email": row[3], "phone": row[4],
@@ -224,18 +233,18 @@ def authenticate_user(login, password):
     # 3. Verify Pass
     if not _verify_password(password, user["password_salt"], user["password_hash"]):
         _record_failed_attempt(login, now_iso)
-        return None, "Неверный логин или пароль."
+        raise InvalidCredentialsError("Неверный логин или пароль.")
         
     # 4. Filter Status
     if user["status"] != "approved":
-         return None, "Ваш аккаунт пока не одобрен администратором."
+         raise InvalidCredentialsError("Ваш аккаунт пока не одобрен администратором.")
          
     # 5. Success -> Reset attempts
     with _db_conn() as conn:
          conn.execute("DELETE FROM login_attempts WHERE login = ?", (login,))
          conn.commit()
 
-    return user, None
+    return user
 
 def _record_failed_attempt(login, attempt_time):
      with _db_conn() as conn:
@@ -397,5 +406,5 @@ def bootstrap_admin():
     admin_phone = get_secret("ADMIN_PHONE") or os.getenv("ADMIN_PHONE") or "+70000000000"
     try:
         create_user(admin_name, admin_login, admin_email, admin_phone, admin_password, role="admin", status="approved")
-    except sqlite3.IntegrityError:
+    except UserAlreadyExistsError:
         pass # Already exists
