@@ -32,7 +32,8 @@ def test_build_report_context_returns_valid_context_for_last_day() -> None:
     assert not ctx.df_current.empty
     assert ctx.df_prev.empty
     assert ctx.current_label.endswith("(последний загруженный день)")
-    assert ctx.selected_period["days"] == 1
+    assert isinstance(ctx.selected_period, report_flow.SelectedPeriod)
+    assert ctx.selected_period.days == 1
 
 
 def test_build_report_context_forms_month_labels() -> None:
@@ -48,7 +49,8 @@ def test_build_report_context_forms_month_labels() -> None:
 
     assert ctx.current_label == f"{selected_ym.strftime('%b %Y')} (Весь месяц)"
     assert ctx.prev_label == (selected_ym - 1).strftime("%b %Y")
-    assert ctx.selected_period["days"] >= 28
+    assert isinstance(ctx.selected_period, report_flow.SelectedPeriod)
+    assert ctx.selected_period.days >= 28
 
 
 def test_build_report_context_handles_none_df() -> None:
@@ -57,4 +59,4 @@ def test_build_report_context_handles_none_df() -> None:
     assert ctx.df_current.empty
     assert ctx.df_prev.empty
     assert ctx.current_label == ""
-    assert ctx.selected_period == {}
+    assert ctx.selected_period is None

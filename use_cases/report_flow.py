@@ -49,7 +49,15 @@ class ReportContext:
     df_prev: pd.DataFrame = field(default_factory=pd.DataFrame)
     current_label: str = ""
     prev_label: str = ""
-    selected_period: dict[str, Any] = field(default_factory=dict)
+    selected_period: Optional["SelectedPeriod"] = None
+
+
+@dataclass(frozen=True)
+class SelectedPeriod:
+    start: datetime
+    end: datetime
+    days: int
+    inflation_start: datetime
 
 
 def build_report_context(
@@ -77,12 +85,12 @@ def build_report_context(
             df_prev=pd.DataFrame(),
             current_label=f"{last_day.strftime('%d.%m.%Y')} (последний загруженный день)",
             prev_label="",
-            selected_period={
-                "start": day_start,
-                "end": day_end,
-                "days": 1,
-                "inflation_start": day_start.replace(day=1),
-            },
+            selected_period=SelectedPeriod(
+                start=day_start,
+                end=day_end,
+                days=1,
+                inflation_start=day_start.replace(day=1),
+            ),
         )
 
     if period_mode == "📅 Месяц (Сравнение)":
@@ -121,12 +129,12 @@ def build_report_context(
             df_prev=df_prev,
             current_label=f"{selected_ym.strftime('%b %Y')} ({scope_mode})",
             prev_label=prev_label,
-            selected_period={
-                "start": start_cur,
-                "end": end_cur,
-                "days": (end_cur - start_cur).days + 1,
-                "inflation_start": start_cur,
-            },
+            selected_period=SelectedPeriod(
+                start=start_cur,
+                end=end_cur,
+                days=(end_cur - start_cur).days + 1,
+                inflation_start=start_cur,
+            ),
         )
 
     if period_mode == "📆 Диапазон" and isinstance(date_range, tuple) and len(date_range) == 2:
@@ -139,12 +147,12 @@ def build_report_context(
             df_prev=pd.DataFrame(),
             current_label=f"{start_dt.date()} - {end_dt.date()}",
             prev_label="",
-            selected_period={
-                "start": start_dt,
-                "end": end_dt,
-                "days": (end_dt - start_dt).days + 1,
-                "inflation_start": start_dt,
-            },
+            selected_period=SelectedPeriod(
+                start=start_dt,
+                end=end_dt,
+                days=(end_dt - start_dt).days + 1,
+                inflation_start=start_dt,
+            ),
         )
 
     return ReportContext()

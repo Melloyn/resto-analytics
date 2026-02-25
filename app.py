@@ -15,7 +15,7 @@ import ui
 from utils import session_manager
 from use_cases import auth_flow, bootstrap, report_flow
 from views import admin_view, login_view
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # --- НАСТРОЙКИ СТРАНИЦЫ ---
 st.set_page_config(page_title="RestoAnalytics: Место", layout="wide", initial_sidebar_state="expanded")
@@ -249,8 +249,8 @@ with st.sidebar:
             prev_label = report_context.prev_label
         
         # --- RENDER EXPORT SIDEBAR ---
-        if selected_period and 'end' in selected_period:
-            export_view.render_sidebar_export(df_current, df_full, tg_token, tg_chat, pd.to_datetime(selected_period['end']))
+        if selected_period is not None:
+            export_view.render_sidebar_export(df_current, df_full, tg_token, tg_chat, pd.to_datetime(selected_period.end))
 
     else:
         st.info("👈 Загрузите данные в боковом меню.")
@@ -286,7 +286,7 @@ if not df_current.empty:
                     if adv_tab == "📉 Динамика":
                         menu_view.render_dynamics(df_full, df_current)
             elif route == report_flow.ReportRoute.INFLATION:
-                inflation_view.render_inflation(df_full, df_current, selected_period['end'], selected_period['inflation_start'])
+                inflation_view.render_inflation(df_full, df_current, selected_period.end, selected_period.inflation_start)
             elif route == report_flow.ReportRoute.ABC:
                 abc_view.render_abc(df_current)
             elif route == report_flow.ReportRoute.SIMULATOR:
@@ -294,7 +294,7 @@ if not df_current.empty:
             elif route == report_flow.ReportRoute.WEEKDAYS:
                 weekday_view.render_weekdays(df_current, df_prev, current_label, prev_label)
             elif route == report_flow.ReportRoute.PROCUREMENT:
-                procurement_view.render_procurement_v2(df_current, df_full, selected_period['days'])
+                procurement_view.render_procurement_v2(df_current, df_full, selected_period.days)
 
 else:
     from streamlit_lottie import st_lottie
