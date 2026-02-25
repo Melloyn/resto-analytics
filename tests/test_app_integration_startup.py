@@ -33,9 +33,6 @@ def test_app_startup_headless_integration(
     st.session_state.admin_fullscreen_tab = None
     st.session_state.auth_user = MagicMock()
     st.session_state.auth_user.full_name = "Test User"
-    st.session_state.df_version = 0
-    st.session_state.categories_applied_sig = "mock_sig"
-    st.session_state.view_cache = {}
     st.session_state.edit_yandex_path = False
     st.session_state.yandex_path = "mock_path"
     

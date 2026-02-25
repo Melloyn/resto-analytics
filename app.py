@@ -51,14 +51,16 @@ if st.session_state.is_admin and st.session_state.admin_fullscreen:
 
 st.title(f"📊 Аналитика: {st.session_state.auth_user.full_name}")
 
-# --- VIEW CACHING HELPER ---
-def get_view_cached(key, compute_func):
-    full_key = (key, st.session_state.df_version, st.session_state.categories_applied_sig)
-    if full_key in st.session_state.view_cache:
-        return st.session_state.view_cache[full_key]
-    val = compute_func()
-    st.session_state.view_cache[full_key] = val
-    return val
+# --- DATA & COMPUTE CACHING ---
+@st.cache_data(show_spinner=False)
+def _cached_build_report_context(df_full, period_mode, selected_ym, scope_mode, selected_day, compare_mode):
+    return report_flow.build_report_context(
+        df_full, period_mode, selected_ym=selected_ym, scope_mode=scope_mode, selected_day=selected_day, compare_mode=compare_mode
+    )
+
+@st.cache_data(show_spinner=False)
+def _cached_calculate_insights(df_curr, df_prev, cur_rev, prev_rev, cur_fc):
+    return analytics_service.calculate_insights(df_curr, df_prev, cur_rev, prev_rev, cur_fc)
 
 # Safe defaults for headless/bare imports where st.stop() might not halt execution.
 df_current = pd.DataFrame()
@@ -137,7 +139,6 @@ with st.sidebar:
                             {"count": 0, "cost": 0.0, "items": []},
                         )
                         st.session_state.df_full = None
-                        st.session_state.df_version += 1
                         st.rerun()
                     else:
                         st.error(msg)
@@ -233,18 +234,18 @@ with st.sidebar:
                          selected_day = None
                      
                      compare_mode = st.selectbox("Сравнить с:", ["Предыдущий месяц", "Год назад", "Нет"], index=1)
-                     report_context = report_flow.build_report_context(
-                         df_full,
-                         period_mode,
-                         selected_ym=selected_ym,
-                         scope_mode=scope_mode,
-                         selected_day=selected_day,
-                         compare_mode=compare_mode,
-                     )
+                     report_context = _cached_build_report_context(
+                        df_full,
+                        period_mode,
+                        selected_ym=selected_ym,
+                        scope_mode=scope_mode,
+                        selected_day=selected_day,
+                        compare_mode=compare_mode,
+                    )
 
-            else:
+            else: # "Диапазон"
                 d_range = st.date_input("Диапазон:", value=(min_date, max_date), min_value=min_date, max_value=max_date)
-                report_context = report_flow.build_report_context(
+                report_context = _cached_build_report_context(
                     df_full,
                     period_mode,
                     date_range=d_range if isinstance(d_range, tuple) and len(d_range) == 2 else None,
@@ -300,7 +301,7 @@ if not df_current.empty:
     cur_fc = (cur_cost / cur_rev * 100) if cur_rev else 0
     
     with st.expander("💡 Smart Insights", expanded=True):
-        insights = analytics_service.calculate_insights(df_current, df_prev, cur_rev, prev_rev, cur_fc)
+        insights = _cached_calculate_insights(df_current, df_prev, cur_rev, prev_rev, cur_fc)
         for i in insights:
             if i.level == 'error': st.error(i.message)
             elif i.level == 'warning': st.warning(i.message)

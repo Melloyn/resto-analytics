@@ -26,11 +26,6 @@ df_full: pd.DataFrame | None
     default: None  
     owner: analytics  
 
-view_cache: dict  
-    кеш UI представлений  
-    default: {}  
-    owner: ui  
-
 session_diag_seen: bool  
     флаг, предотвращающий повторный показ диагностики cookie  
     default: False  
@@ -50,12 +45,6 @@ def init_session_state():
         st.session_state.auth_user = None
     if 'auth_token' not in st.session_state:
         st.session_state.auth_token = None
-    if 'df_version' not in st.session_state:
-        st.session_state.df_version = 0
-    if 'categories_applied_sig' not in st.session_state:
-        st.session_state.categories_applied_sig = None
-    if 'view_cache' not in st.session_state:
-        st.session_state.view_cache = {}
     if 'yandex_path' not in st.session_state:
         st.session_state.yandex_path = "RestoAnalytic"
     if 'edit_yandex_path' not in st.session_state:

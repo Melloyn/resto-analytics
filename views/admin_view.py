@@ -59,8 +59,6 @@ def _render_misc_tab():
                 category_service.sync_to_yandex(yd_token)
             df_full = category_service.apply_categories(df_full)
             st.session_state.df_full = df_full
-            st.session_state.df_version += 1
-            st.session_state.categories_applied_sig = datetime.utcnow().isoformat()
             st.success(f"Обновлено категорий: {len(updates)}")
             st.rerun()
         else:

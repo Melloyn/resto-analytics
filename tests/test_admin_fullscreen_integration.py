@@ -49,9 +49,6 @@ def test_admin_fullscreen_headless_integration(
     
     # Defaults needed just to import safely
     st.session_state.df_full = None
-    st.session_state.df_version = 0
-    st.session_state.categories_applied_sig = "mock_sig"
-    st.session_state.view_cache = {}
     st.session_state.edit_yandex_path = False
     st.session_state.yandex_path = "mock_path"
     

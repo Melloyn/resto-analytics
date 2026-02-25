@@ -44,7 +44,5 @@ def test_app_integration_guard():
         mock_auth_flow.assert_called()
         
         # Verify session state contract keys are present
-        assert 'df_version' in st.session_state
-        assert 'view_cache' in st.session_state
         assert 'yandex_path' in st.session_state
         assert 'session_diag_seen' in st.session_state

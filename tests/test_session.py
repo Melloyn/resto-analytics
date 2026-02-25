@@ -10,7 +10,6 @@ def test_init_session_state():
     assert 'df_full' in st.session_state
     assert st.session_state.is_admin is False
     assert st.session_state.auth_user is None
-    assert st.session_state.df_version == 0
     assert 'categories_synced' in st.session_state
 
 def test_init_session_state_sets_session_diag_seen_default():
