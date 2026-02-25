@@ -4,7 +4,8 @@ import hmac
 import secrets
 import os
 import streamlit as st
-import requests
+from infrastructure.repositories.sqlite_user_repository import SQLiteUserRepository
+from infrastructure.storage.yandex_disk_storage import YandexDiskStorage
 from datetime import datetime, timedelta
 import base64
 
@@ -26,6 +27,7 @@ def get_secret(key):
         return None
 
 _user_repo = None
+_storage_provider = None
 
 def get_user_repo() -> SQLiteUserRepository:
     global _user_repo
@@ -33,51 +35,17 @@ def get_user_repo() -> SQLiteUserRepository:
         _user_repo = SQLiteUserRepository(USERS_DB)
     return _user_repo
 
+def get_storage_provider() -> YandexDiskStorage:
+    global _storage_provider
+    if _storage_provider is None:
+        _storage_provider = YandexDiskStorage()
+    return _storage_provider
+
 def sync_users_from_yandex(token, remote_path=YANDEX_USERS_PATH, force=False):
-    if not token:
-        return False
-    if os.path.exists(USERS_DB) and not force:
-        # Keep current behavior for explicit non-forced sync calls.
-        return True
-        
-    headers = {'Authorization': f'OAuth {token}'}
-    try:
-        resp = requests.get(
-            "https://cloud-api.yandex.net/v1/disk/resources/download",
-            headers=headers,
-            params={'path': remote_path},
-            timeout=5
-        )
-        if resp.status_code == 200:
-            href = resp.json().get("href")
-            dl = requests.get(href)
-            if dl.status_code == 200:
-                with open(USERS_DB, 'wb') as f:
-                    f.write(dl.content)
-                return True
-    except Exception:
-        return False
-    return False
+    return get_storage_provider().download_file(remote_path, USERS_DB, token, force=force)
 
 def sync_users_to_yandex(token, remote_path=YANDEX_USERS_PATH):
-    if not token or not os.path.exists(USERS_DB):
-        return False
-    headers = {'Authorization': f'OAuth {token}'}
-    try:
-        resp = requests.get(
-            "https://cloud-api.yandex.net/v1/disk/resources/upload",
-            headers=headers,
-            params={'path': remote_path, 'overwrite': 'true'},
-            timeout=5
-        )
-        if resp.status_code == 200:
-            href = resp.json().get("href")
-            with open(USERS_DB, 'rb') as f:
-                up = requests.put(href, files={'file': f})
-                return up.status_code in [201, 202]
-    except Exception:
-        return False
-    return False
+    return get_storage_provider().upload_file(USERS_DB, remote_path, token)
 
 @st.cache_resource
 def get_runtime_sessions():
