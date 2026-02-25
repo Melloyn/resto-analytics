@@ -1,6 +1,6 @@
 import pytest
 import sys
-import streamlit as st
+import streamlit as st  # noqa: TID251
 
 def test_imports():
     """Ensure core modules can be imported without crashing."""
