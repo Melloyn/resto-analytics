@@ -9,6 +9,7 @@ from use_cases import auth_flow, bootstrap
 def test_auth_flow_contract(_, __, ___) -> None:
     assert hasattr(auth_flow, "ensure_authenticated_session")
     auth_flow.session_manager.st.session_state.clear()
+    auth_flow.session_manager.st.session_state.auth_user = None
     result = auth_flow.ensure_authenticated_session()
     assert isinstance(result, auth_flow.AuthFlowResult)
     assert result.status in {"CONTINUE", "STOP"}

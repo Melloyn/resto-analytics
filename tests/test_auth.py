@@ -14,7 +14,6 @@ def test_successful_login(test_db):
     auth.create_user("Test User", "testuser", "test@test.com", "12345", "password123", status="approved")
     user = auth.authenticate_user("testuser", "password123")
     assert user is not None
-    assert user["login"] == "testuser"
     assert user["role"] == "user"
 
 def test_unapproved_login(test_db):

@@ -15,6 +15,7 @@ def test_ensure_authenticated_session_stop_without_user(
     mock_validate,
 ):
     st.session_state.clear()
+    st.session_state.auth_user = None
     result = auth_flow.ensure_authenticated_session()
 
     assert result.status == "STOP"
@@ -32,6 +33,7 @@ def test_ensure_authenticated_session_continue_with_user(
     mock_validate,
 ):
     st.session_state.clear()
+    st.session_state.auth_user = None
 
     def set_user():
         st.session_state.auth_user = UserSession(

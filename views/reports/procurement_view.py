@@ -19,9 +19,9 @@ def render_procurement_v2(df_sales, df_full, period_days):
     stock_df = data_loader.get_stock_data()
 
     admin_mode = False
-    if st.session_state.get('auth_user') and is_admin(st.session_state.auth_user):
+    if st.session_state.auth_user is not None and is_admin(st.session_state.auth_user):
         admin_mode = True
-    elif st.session_state.get('is_admin'):
+    elif st.session_state.is_admin:
         admin_mode = True
 
     # --- DEBUG SECTION (ADMIN ONLY) ---
