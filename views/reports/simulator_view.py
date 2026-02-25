@@ -2,6 +2,7 @@ import streamlit as st
 import ui
 from services import analytics_service, data_loader
 
+@st.fragment
 def render_simulator(df_current, df_full):
     st.header("🧪 Симулятор роста цен (Ингредиенты)")
     st.info("Выберите ингредиенты, укажите рост цены (в рублях за единицу), и увидите, как это повлияет на себестоимость блюд.")

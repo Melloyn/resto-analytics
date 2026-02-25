@@ -5,6 +5,7 @@ import ui
 from use_cases.session_models import is_admin
 from services import data_loader, parsing_service
 
+@st.fragment
 def render_procurement_v2(df_sales, df_full, period_days):
     placeholder = st.empty()
     with placeholder.container():
