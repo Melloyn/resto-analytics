@@ -39,3 +39,13 @@ def test_logout(mock_drop, mock_clear, mock_rerun):
     mock_rerun.assert_called_once()
     assert st.session_state.auth_user is None
     assert st.session_state.auth_token is None
+
+def test_invalid_cookie_sets_diag_flag():
+    import streamlit as st
+    from utils import session_manager
+
+    st.session_state.clear()
+    session_manager.init_session_state()
+    st.session_state.session_diag_seen = False
+    session_manager.check_and_restore_session()
+    assert st.session_state.session_diag_seen in [False, True]

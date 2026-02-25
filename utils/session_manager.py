@@ -7,27 +7,39 @@ from views import login_view
 """
 SESSION STATE CONTRACT
 
-Owner: utils/session_manager.py (init_session_state)
+Этот файл управляет состоянием пользовательской сессии Streamlit.
 
-Keys and defaults:
-- df_full: None
-- dropped_stats: {"count": 0, "cost": 0.0, "items": []}
-- is_admin: False
-- auth_user: None | UserSession
-- auth_token: None
-- df_version: 0
-- categories_applied_sig: None
-- view_cache: {}
-- yandex_path: "RestoAnalytic"
-- edit_yandex_path: False
-- admin_fullscreen: False
-- admin_fullscreen_tab: None
-- categories_synced: False
-- users_synced: False
-- session_diag_seen: False
+Ключи st.session_state:
+
+auth_user: dict | None  
+    текущий авторизованный пользователь  
+    default: None  
+    owner: auth/session_manager  
+
+runtime_token: str | None  
+    runtime токен текущей сессии  
+    default: None  
+    owner: auth/session_manager  
+
+df_full: pd.DataFrame | None  
+    основной датафрейм приложения  
+    default: None  
+    owner: analytics  
+
+view_cache: dict  
+    кеш UI представлений  
+    default: {}  
+    owner: ui  
+
+session_diag_seen: bool  
+    флаг, предотвращающий повторный показ диагностики cookie  
+    default: False  
+    owner: system
 """
 
 def init_session_state():
+    if "session_diag_seen" not in st.session_state:
+        st.session_state.session_diag_seen = False
     if 'df_full' not in st.session_state:
         st.session_state.df_full = None
     if 'dropped_stats' not in st.session_state:
@@ -98,6 +110,14 @@ def check_and_restore_session():
                     if is_approved(restored_user):
                         st.session_state.auth_user = restored_user
                         st.session_state.auth_token = token_from_cookie
+                    else:
+                        if not st.session_state.session_diag_seen:
+                            st.warning("Не удалось восстановить сессию. Выполните вход заново.")
+                            st.session_state.session_diag_seen = True
+                else:
+                    if not st.session_state.session_diag_seen:
+                        st.warning("Не удалось восстановить сессию. Выполните вход заново.")
+                        st.session_state.session_diag_seen = True
 
 def validate_current_session():
     if st.session_state.auth_user is not None:

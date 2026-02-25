@@ -5,9 +5,6 @@ import toml
 import time
 from services import data_loader
 from infrastructure.storage.yandex_disk_storage import YandexDiskStorage
-import toml
-import time
-from services import data_loader
 
 # Load secrets
 try:

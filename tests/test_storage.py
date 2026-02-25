@@ -105,3 +105,35 @@ def test_download_file_stream_failure(mock_get, storage):
     data = storage.download_file_stream("http://fake-url.com", "fake_token")
     
     assert data is None
+
+@patch('requests.get')
+def test_list_directory_uses_requests_mock(mock_get, storage):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "_embedded": {
+            "items": [{"name": "file1.txt", "type": "file"}]
+        }
+    }
+    mock_get.return_value = mock_resp
+    
+    items = storage.list_directory("remote/path", "fake_token")
+    
+    mock_get.assert_called_once()
+    assert isinstance(items, list)
+    assert len(items) == 1
+    assert items[0]["name"] == "file1.txt"
+
+@patch('requests.get')
+def test_download_file_stream_yields_bytes(mock_get, storage):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.content = b"fake byte stream generator output"
+    mock_get.return_value = mock_resp
+    
+    data = storage.download_file_stream("http://fake-url.com", "fake_token")
+    
+    mock_get.assert_called_once()
+    assert isinstance(data, bytes)
+    assert len(data) > 0
+    assert data == b"fake byte stream generator output"
