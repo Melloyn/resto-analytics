@@ -1,7 +1,7 @@
 from services import analytics_service, data_loader
 import pandas as pd
-import requests
 import threading
+from infrastructure.messaging.telegram_provider import TelegramProvider
 
 def format_report(df_full, target_date):
     """
@@ -78,28 +78,19 @@ def format_report(df_full, target_date):
     """
     return report.strip()
 
+_messenger_provider = None
+
+def get_messenger_provider() -> TelegramProvider:
+    global _messenger_provider
+    if _messenger_provider is None:
+        _messenger_provider = TelegramProvider()
+    return _messenger_provider
+
 def send_telegram_message(token, chat_id, message):
     """
     Sends a text message to the specified Telegram chat.
     """
-    if not token or not chat_id:
-        return False, "❌ Нет токена или Chat ID."
-
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": message,
-        "parse_mode": "Markdown"
-    }
-    
-    try:
-        response = requests.post(url, json=payload, timeout=10)
-        if response.status_code == 200:
-            return True, "✅ Отчет отправлен!"
-        else:
-            return False, f"Ошибка Telegram: {response.text}"
-    except Exception as e:
-        return False, f"Ошибка сети: {str(e)}"
+    return get_messenger_provider().send_message(token, chat_id, message)
 
 def send_to_all(token, chat_ids_raw, message):
     """
