@@ -13,7 +13,7 @@ from services import data_loader, analytics_service, category_service
 import auth
 import ui
 from utils import session_manager
-from use_cases import auth_flow, bootstrap
+from use_cases import auth_flow, bootstrap, report_flow
 from views import admin_view, login_view
 from datetime import datetime, timedelta
 
@@ -197,20 +197,13 @@ with st.sidebar:
                 index=0
             )
             
-            df_current = pd.DataFrame()
-            df_prev = pd.DataFrame()
-            selected_period = {}
-            current_label = ""
-            prev_label = ""
+            report_context = report_flow.ReportContext()
             
             if period_mode == "📌 Последний загруженный день":
-                 last_day = pd.to_datetime(df_full['Дата_Отчета']).max().normalize()
-                 day_start = last_day
-                 day_end = last_day + timedelta(hours=23, minutes=59, seconds=59)
-                 df_current = df_full[(df_full['Дата_Отчета'] >= day_start) & (df_full['Дата_Отчета'] <= day_end)]
-                 df_prev = pd.DataFrame()
-                 current_label = f"{last_day.strftime('%d.%m.%Y')} (последний загруженный день)"
-                 selected_period = {'start': day_start, 'end': day_end, 'days': 1, 'inflation_start': day_start.replace(day=1)}
+                report_context = report_flow.build_report_context(
+                    df_full,
+                    period_mode,
+                )
 
             elif period_mode == "📅 Месяц (Сравнение)":
                  df_full['YearMonth'] = df_full['Дата_Отчета'].dt.to_period('M')
@@ -228,37 +221,32 @@ with st.sidebar:
                      if scope_mode == "По конкретный день":
                          max_d = (selected_ym.to_timestamp(how='end')).day
                          selected_day = st.slider("День:", 1, max_d, min(datetime.now().day, max_d))
-                         end_cur = start_cur + timedelta(days=selected_day-1)
-                         end_cur = end_cur.replace(hour=23, minute=59, second=59)
-
-                     df_current = df_full[(df_full['Дата_Отчета'] >= start_cur) & (df_full['Дата_Отчета'] <= end_cur)]
-                     current_label = f"{selected_ym.strftime('%b %Y')} ({scope_mode})"
-                     selected_period = {'start': start_cur, 'end': end_cur, 'days': (end_cur - start_cur).days + 1, 'inflation_start': start_cur}
+                     else:
+                         selected_day = None
                      
                      compare_mode = st.selectbox("Сравнить с:", ["Предыдущий месяц", "Год назад", "Нет"], index=1)
-                     
-                     if compare_mode == "Предыдущий месяц":
-                         prev_ym = selected_ym - 1
-                         start_prev = prev_ym.start_time
-                         end_prev = start_prev + (end_cur - start_cur)
-                         df_prev = df_full[(df_full['Дата_Отчета'] >= start_prev) & (df_full['Дата_Отчета'] <= end_prev)]
-                         prev_label = prev_ym.strftime("%b %Y")
-                     elif compare_mode == "Год назад":
-                         prev_ym = selected_ym - 12
-                         start_prev = prev_ym.start_time
-                         end_prev = start_prev + (end_cur - start_cur)
-                         df_prev = df_full[(df_full['Дата_Отчета'] >= start_prev) & (df_full['Дата_Отчета'] <= end_prev)]
-                         prev_label = prev_ym.strftime("%b %Y")
+                     report_context = report_flow.build_report_context(
+                         df_full,
+                         period_mode,
+                         selected_ym=selected_ym,
+                         scope_mode=scope_mode,
+                         selected_day=selected_day,
+                         compare_mode=compare_mode,
+                     )
 
             else:
                 d_range = st.date_input("Диапазон:", value=(min_date, max_date), min_value=min_date, max_value=max_date)
-                if isinstance(d_range, tuple) and len(d_range) == 2:
-                    s, e = d_range
-                    s = pd.to_datetime(s)
-                    e = pd.to_datetime(e) + timedelta(hours=23, minutes=59)
-                    df_current = df_full[(df_full['Дата_Отчета'] >= s) & (df_full['Дата_Отчета'] <= e)]
-                    current_label = f"{s.date()} - {e.date()}"
-                    selected_period = {'start': s, 'end': e, 'days': (e - s).days + 1, 'inflation_start': s}
+                report_context = report_flow.build_report_context(
+                    df_full,
+                    period_mode,
+                    date_range=d_range if isinstance(d_range, tuple) and len(d_range) == 2 else None,
+                )
+
+            df_current = report_context.df_current
+            df_prev = report_context.df_prev
+            selected_period = report_context.selected_period
+            current_label = report_context.current_label
+            prev_label = report_context.prev_label
         
         # --- RENDER EXPORT SIDEBAR ---
         if selected_period and 'end' in selected_period:
