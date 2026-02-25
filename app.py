@@ -164,19 +164,12 @@ with st.sidebar:
                  if not meta_ok:
                      st.warning("Кэш устарел. Нажмите «Скачать и обновить».")
                  else:
-                     placeholder = st.empty()
-                     with placeholder.container():
-                         st.markdown("### Загрузка аналитики из кэша...")
-                         ui.render_skeleton_kpis()
-                         st.markdown("<br>", unsafe_allow_html=True)
-                         ui.render_skeleton_chart()
-                         import time; time.sleep(0.05) # Force UI flush
-                     df = pd.read_parquet(data_loader.CACHE_FILE)
-                     # Always re-apply categories from current mapping,
-                     # so category edits survive app/server restarts.
-                     df = category_service.apply_categories(df)
-                     st.session_state.df_full = df
-                     placeholder.empty()
+                     with st.spinner("Загрузка и подготовка данных..."):
+                         df = pd.read_parquet(data_loader.CACHE_FILE)
+                         # Always re-apply categories from current mapping,
+                         # so category edits survive app/server restarts.
+                         df = category_service.apply_categories(df)
+                         st.session_state.df_full = df
              except Exception as e:
                  st.error(f"Ошибка чтения кэша: {e}")
     
