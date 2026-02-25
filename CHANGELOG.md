@@ -1,9 +1,35 @@
 # Changelog
 
-## v0.2.6 - 2026-02-25
+Все значимые изменения проекта `RestoAnalytic` документируются в этом файле.
 
-- docs: add README/runbook and integration guard test
-- Added Application layer skeleton in `use_cases/` (`__init__`, `auth_flow`, `bootstrap`) with typed contracts.
-- Moved auth gate orchestration from `app.py` to `use_cases/auth_flow.py` (`init -> restore -> gate -> validate`) without UI behavior changes.
-- Moved startup/bootstrap + autosync orchestration from `app.py` to `use_cases/bootstrap.py` while preserving side-effect order and session-flag idempotency.
-- Added/updated tests for `use_cases` contracts and orchestration paths (`auth_flow`, `bootstrap`).
+## [v1.1.0] - 2026-02-26
+
+### Добавлено
+- `eeb9374` Внедрена таблица `schema_info` и цикл идемпотентных миграций для БД `users.db`. Обеспечена обратная совместимость со старыми состояниями БД.
+  - *Влияние: Надёжность и Безопасность развертываний.*
+- `9a15794`, `a1135fc` Добавлены интеграционные guard-тесты (`test_admin_fullscreen_integration.py`, `test_app_integration_startup.py`).
+  - *Влияние: Надёжность и CI/CD.*
+
+### Изменено
+- `06ef879` Навигация приложения перенесена со стандартных вкладок `st.tabs` в боковую панель с использованием `streamlit_option_menu`.
+  - *Влияние: UX и расширяемость (позволяет добавлять неограниченное количество разделов без горизонтальной прокрутки).*
+- `00eb77c` Базовая тема Streamlit (`.streamlit/config.toml`) синхронизирована с кастомными CSS-переменными (primaryColor=`#73c3ff`, backgroundColor=`#08101d`). Добавлен нативный `st.spinner` на "холодном" старте (чтение кэша `parquet`).
+  - *Влияние: UX (отсутствие моргания цветов, устранение "висящего белого экрана").*
+
+### Удалено
+- `1245703` Полностью удален самописный механизм кэширования `st.session_state.view_cache` и функция `get_view_cached`.
+  - *Влияние: Архитектура и Производительность (снижение объема потребления оперативной памяти сессией).*
+- `a05c50d` Удалена зависимость от `streamlit-aggrid` во view "ABC Анализ". Вкладка возвращена на нативный и адаптируемый элемент `st.dataframe`.
+  - *Влияние: UX (устранение вылетов таблицы за границы на мобильных устройствах).*
+
+### Исправлено
+- `df82f3a` Применена аннотация `@st.fragment` к тяжелым интерактивным формам в симуляторе (simulator_view) и закупках (procurement_view).
+  - *Влияние: Производительность (устранено мерцание и полная перезагрузка дашборда при вводе цифр пользователем).*
+- `33ce925`, `a5a7b95`, `d5d46be` Исправлена проблема падения тестов при headless-импорте `app.py` из-за отсутствия контекста Streamlit Session State.
+  - *Влияние: Надёжность.*
+
+### Рефакторинг
+- `1245703` Переход на использование официального декоратора `@st.cache_data` для кеширования вызовов `_cached_build_report_context` и `_cached_calculate_insights`. 
+  - *Влияние: Модель памяти Streamlit и Архитектура.*
+- `6d2cd95` Внедрен строгий DTO-объект `InsightMetrics` вместо использования "сырых" словарей, типизирован вывод `analytics_service`.
+  - *Влияние: Разрабатываемость и автокомплит в IDE.*
