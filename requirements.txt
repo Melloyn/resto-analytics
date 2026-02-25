@@ -12,3 +12,4 @@ streamlit-lottie
 streamlit-aggrid
 pandera
 streamlit-option-menu
+ruff==0.6.9
