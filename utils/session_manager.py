@@ -3,6 +3,29 @@ import streamlit.components.v1 as components
 import auth
 from views import login_view
 
+"""
+SESSION STATE CONTRACT
+
+Owner: utils/session_manager.py (init_session_state)
+
+Keys and defaults:
+- df_full: None
+- dropped_stats: {"count": 0, "cost": 0.0, "items": []}
+- is_admin: False
+- auth_user: None
+- auth_token: None
+- df_version: 0
+- categories_applied_sig: None
+- view_cache: {}
+- yandex_path: "RestoAnalytic"
+- edit_yandex_path: False
+- admin_fullscreen: False
+- admin_fullscreen_tab: None
+- categories_synced: False
+- users_synced: False
+- session_diag_seen: False
+"""
+
 def init_session_state():
     if 'df_full' not in st.session_state:
         st.session_state.df_full = None
@@ -32,6 +55,8 @@ def init_session_state():
         st.session_state.categories_synced = False
     if 'users_synced' not in st.session_state:
         st.session_state.users_synced = False
+    if "session_diag_seen" not in st.session_state:
+        st.session_state.session_diag_seen = False
 
 def clear_browser_auth_token():
     components.html(

@@ -12,6 +12,12 @@ def test_init_session_state():
     assert st.session_state.df_version == 0
     assert 'categories_synced' in st.session_state
 
+def test_init_session_state_sets_session_diag_seen_default():
+    st.session_state.clear()
+    session_manager.init_session_state()
+    assert "session_diag_seen" in st.session_state
+    assert st.session_state.session_diag_seen is False
+
 @patch('streamlit.rerun')
 @patch('utils.session_manager.clear_browser_auth_token')
 @patch('auth.drop_runtime_session')
