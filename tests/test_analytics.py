@@ -31,7 +31,7 @@ def test_calculate_insights_revenue_growth(sample_curr_df, sample_prev_df):
     
     insights = calculate_insights(sample_curr_df, sample_prev_df, cur_rev, prev_rev, cur_fc)
     
-    types = [i['type'] for i in insights]
+    types = [i.type for i in insights]
     assert 'inflation' in types, "Should detect 33% inflation on Cola"
     assert 'high_fc' not in types, "FC is <= 35, should not warn"
     # Rev growth: current is 88000, prev is 78000. Diff = 12.8%. It won't trigger > 20% or < -10%. 
@@ -50,7 +50,7 @@ def test_calculate_insights_dogs(sample_curr_df, sample_prev_df):
     curr_combined = pd.concat([sample_curr_df, dogs_df])
     
     insights = calculate_insights(curr_combined, sample_prev_df, curr_combined['Выручка с НДС'].sum(), 100000.0, 30.0)
-    types = [i['type'] for i in insights]
+    types = [i.type for i in insights]
     
     assert 'dogs' in types, "Should detect multiple 'Dog' items"
     assert 'rev_drop' in types, "Revenue dropped from 100,000 to ~89,000"

@@ -277,9 +277,9 @@ if not df_current.empty:
     with st.expander("💡 Smart Insights", expanded=True):
         insights = analytics_service.calculate_insights(df_current, df_prev, cur_rev, prev_rev, cur_fc)
         for i in insights:
-            if i['level'] == 'error': st.error(i['message'])
-            elif i['level'] == 'warning': st.warning(i['message'])
-            elif i['level'] == 'success': st.success(i['message'])
+            if i.level == 'error': st.error(i.message)
+            elif i.level == 'warning': st.warning(i.message)
+            elif i.level == 'success': st.success(i.message)
 
     # --- TABS ---
     tabs = st.tabs(list(report_flow.REPORT_TAB_LABELS))

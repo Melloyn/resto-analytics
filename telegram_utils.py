@@ -46,10 +46,10 @@ def format_report(df_full, target_date):
     
     insight_text = ""
     for note in insights:
-        if note['level'] in ['error', 'warning', 'success', 'info']:
+        if note.level in ['error', 'warning', 'success', 'info']:
             # Filter all_good if we have real items? No, show all_good if nothing else
-            if note['type'] == 'all_good' and len(insights) > 1: continue 
-            insight_text += f"\n{note['message']}"
+            if note.type == 'all_good' and len(insights) > 1: continue 
+            insight_text += f"\n{note.message}"
 
     # Top Dish of the Day
     try:

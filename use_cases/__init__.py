@@ -4,6 +4,7 @@ from .auth_flow import AuthFlowResult, AuthFlowStatus, ensure_authenticated_sess
 from .bootstrap import StartupResult, StartupStatus, run_startup
 from .report_flow import REPORT_TAB_LABELS, ReportContext, ReportRoute, SelectedPeriod, build_report_context, select_report_route
 from .session_models import AccountStatus, Role, UserSession, is_admin, is_approved
+from .domain_models import InsightMetric
 
 __all__ = [
     "AccountStatus",
@@ -23,4 +24,5 @@ __all__ = [
     "is_admin",
     "is_approved",
     "run_startup",
+    "InsightMetric",
 ]
