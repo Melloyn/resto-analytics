@@ -130,7 +130,7 @@ def validate_current_session():
                 current_ua = None
                 
             st.session_state.auth_token = auth.create_runtime_session(
-                fresh_user[0],
+                fresh_user_session.id,
                 user_agent=current_ua,
             )
             
