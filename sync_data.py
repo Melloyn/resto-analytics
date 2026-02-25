@@ -1,7 +1,10 @@
 import os
 import pandas as pd
-import requests
 from io import BytesIO
+import toml
+import time
+from services import data_loader
+from infrastructure.storage.yandex_disk_storage import YandexDiskStorage
 import toml
 import time
 from services import data_loader
@@ -22,30 +25,7 @@ def sync_from_yandex():
         print("❌ No Yandex Token found.")
         return
 
-    headers = {'Authorization': f'OAuth {YANDEX_TOKEN}'}
-    api_url = 'https://cloud-api.yandex.net/v1/disk/resources'
-
-    def list_items(path, limit=1000):
-        items_acc = []
-        offset = 0
-
-        while True:
-            params = {'path': path, 'limit': limit, 'offset': offset}
-            resp = requests.get(api_url, headers=headers, params=params, timeout=20)
-            if resp.status_code != 200:
-                print(f"❌ Yandex API Error [{path}]: {resp.status_code}")
-                return items_acc
-
-            page_items = resp.json().get('_embedded', {}).get('items', [])
-            if not page_items:
-                break
-
-            items_acc.extend(page_items)
-            if len(page_items) < limit:
-                break
-            offset += limit
-
-        return items_acc
+    storage = YandexDiskStorage()
     
     try:
         # 1. List files
@@ -54,7 +34,7 @@ def sync_from_yandex():
         dropped_summary = {'count': 0, 'cost': 0.0}
         
         # Check if root has subfolders
-        items = list_items(YANDEX_PATH, limit=1000)
+        items = storage.list_directory(YANDEX_PATH, YANDEX_TOKEN, limit=1000)
         if not items:
             print("⚠️ No files found or failed to read root folder.")
             return
@@ -65,8 +45,12 @@ def sync_from_yandex():
         # Helper to process file using data_engine
         def process_and_collect(file_url, filename, venue):
             try:
-                r = requests.get(file_url, headers=headers, timeout=20)
-                df, err, warns, dropped = data_loader.process_single_file(BytesIO(r.content), filename)
+                content = storage.download_file_stream(file_url, YANDEX_TOKEN)
+                if not content:
+                    print(f"   ❌ Network Error {filename}")
+                    return
+                    
+                df, err, warns, dropped = data_loader.process_single_file(BytesIO(content), filename)
                 
                 if dropped:
                     dropped_summary['count'] += dropped['count']
@@ -96,7 +80,7 @@ def sync_from_yandex():
 
             def get_files_recursive(path):
                 all_files = []
-                path_items = list_items(path, limit=1000)
+                path_items = storage.list_directory(path, YANDEX_TOKEN, limit=1000)
                 if not path_items:
                     return all_files
 
