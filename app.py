@@ -3,6 +3,7 @@ import pandas as pd
 import streamlit.components.v1 as components
 import os
 import telegram_utils
+from streamlit_option_menu import option_menu
 
 from views.reports import (
     kpi_view, inflation_view, export_view,
@@ -259,6 +260,30 @@ with st.sidebar:
         if selected_period is not None:
             export_view.render_sidebar_export(df_current, df_full, tg_token, tg_chat, pd.to_datetime(selected_period.end))
 
+        st.divider()
+        
+        # --- NAVIGATION ---
+        # Initialize default selection in session state if not present
+        if 'current_nav_tab' not in st.session_state:
+            st.session_state.current_nav_tab = report_flow.REPORT_TAB_LABELS[0]
+
+        selected_tab_label = option_menu(
+            menu_title="Навигация",
+            options=list(report_flow.REPORT_TAB_LABELS),
+            icons=["receipt", "graph-down-arrow", "bar-chart-steps", "sliders", "calendar-week", "box-seam"],
+            menu_icon="compass",
+            default_index=list(report_flow.REPORT_TAB_LABELS).index(st.session_state.current_nav_tab),
+            styles={
+                "container": {"padding": "0!important", "background-color": "transparent"},
+                "nav-link": {"font-size": "14px", "text-align": "left", "margin": "0px", "--hover-color": "#eee"},
+                "nav-link-selected": {"background-color": "#e0e0e0", "color": "black"},
+            }
+        )
+        
+        # Keep selection in sync
+        if selected_tab_label != st.session_state.current_nav_tab:
+            st.session_state.current_nav_tab = selected_tab_label
+
     else:
         st.info("👈 Загрузите данные в боковом меню.")
         st.stop()
@@ -281,27 +306,26 @@ if not df_current.empty:
             elif i.level == 'warning': st.warning(i.message)
             elif i.level == 'success': st.success(i.message)
 
-    # --- TABS ---
-    tabs = st.tabs(list(report_flow.REPORT_TAB_LABELS))
-    for tab, tab_label in zip(tabs, report_flow.REPORT_TAB_LABELS):
-        route = report_flow.select_report_route(tab_label)
-        with tab:
-            if route == report_flow.ReportRoute.MENU:
-                menu_view.render_menu(df_current, df_prev, current_label, prev_label)
-                with st.expander("🔬 Расширенные разделы", expanded=False):
-                    adv_tab = st.radio("Дополнительно", ["📉 Динамика"], horizontal=True, label_visibility="collapsed")
-                    if adv_tab == "📉 Динамика":
-                        menu_view.render_dynamics(df_full, df_current)
-            elif route == report_flow.ReportRoute.INFLATION:
-                inflation_view.render_inflation(df_full, df_current, selected_period.end, selected_period.inflation_start)
-            elif route == report_flow.ReportRoute.ABC:
-                abc_view.render_abc(df_current)
-            elif route == report_flow.ReportRoute.SIMULATOR:
-                simulator_view.render_simulator(df_current, df_full)
-            elif route == report_flow.ReportRoute.WEEKDAYS:
-                weekday_view.render_weekdays(df_current, df_prev, current_label, prev_label)
-            elif route == report_flow.ReportRoute.PROCUREMENT:
-                procurement_view.render_procurement_v2(df_current, df_full, selected_period.days)
+    # --- MAIN VIEW ---
+    st.divider()
+    route = report_flow.select_report_route(st.session_state.current_nav_tab)
+    
+    if route == report_flow.ReportRoute.MENU:
+        menu_view.render_menu(df_current, df_prev, current_label, prev_label)
+        with st.expander("🔬 Расширенные разделы", expanded=False):
+            adv_tab = st.radio("Дополнительно", ["📉 Динамика"], horizontal=True, label_visibility="collapsed")
+            if adv_tab == "📉 Динамика":
+                menu_view.render_dynamics(df_full, df_current)
+    elif route == report_flow.ReportRoute.INFLATION:
+        inflation_view.render_inflation(df_full, df_current, selected_period.end, selected_period.inflation_start)
+    elif route == report_flow.ReportRoute.ABC:
+        abc_view.render_abc(df_current)
+    elif route == report_flow.ReportRoute.SIMULATOR:
+        simulator_view.render_simulator(df_current, df_full)
+    elif route == report_flow.ReportRoute.WEEKDAYS:
+        weekday_view.render_weekdays(df_current, df_prev, current_label, prev_label)
+    elif route == report_flow.ReportRoute.PROCUREMENT:
+        procurement_view.render_procurement_v2(df_current, df_full, selected_period.days)
 
 else:
     from streamlit_lottie import st_lottie
