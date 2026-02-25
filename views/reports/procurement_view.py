@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import timedelta
 import ui
+from use_cases.session_models import is_admin
 from services import data_loader, parsing_service
 
 def render_procurement_v2(df_sales, df_full, period_days):
@@ -17,14 +18,14 @@ def render_procurement_v2(df_sales, df_full, period_days):
     recipes_map = data_loader.get_recipes_map()
     stock_df = data_loader.get_stock_data()
 
-    is_admin = False
-    if st.session_state.get('auth_user') and st.session_state.auth_user.role == 'admin':
-        is_admin = True
+    admin_mode = False
+    if st.session_state.get('auth_user') and is_admin(st.session_state.auth_user):
+        admin_mode = True
     elif st.session_state.get('is_admin'):
-        is_admin = True
+        admin_mode = True
 
     # --- DEBUG SECTION (ADMIN ONLY) ---
-    if is_admin:
+    if admin_mode:
         with st.expander("🕵️ Диагностика Белого Списка (Что есть в Товарообороте?)"):
             st.write(f"Всего позиций в Товарообороте: {len(stock_df) if stock_df is not None else 0}")
             if stock_df is not None:
@@ -71,7 +72,7 @@ def render_procurement_v2(df_sales, df_full, period_days):
 
     preset_mode = "Авто (рекомендуется)"
     
-    if is_admin:
+    if admin_mode:
         preset_mode = st.selectbox(
             "Режим прогноза",
             ["Авто (рекомендуется)", "Стабильно", "Агрессивно", "Пользовательский"],
