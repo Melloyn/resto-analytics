@@ -45,14 +45,15 @@ def render_abc(df_current):
         })
         abc_view = abc_view[(abc_view["Выручка"] >= abc_min_rev) & (abc_view["Кол-во"] >= abc_min_qty)]
         abc_view = abc_view.sort_values("Выручка", ascending=False).head(abc_top_n)
-        ui.render_aggrid(
+        st.dataframe(
             abc_view[["Блюдо", "Класс", "Выручка", "С/С", "Кол-во", "Маржа/шт"]],
             height=500,
-            pagination=True,
-            formatting={
-                "Выручка": "%.0f ₽",
-                "С/С": "%.0f ₽",
-                "Кол-во": "%.0f",
-                "Маржа/шт": "%.0f ₽"
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Выручка": st.column_config.NumberColumn("Выручка", format="%d ₽"),
+                "С/С": st.column_config.NumberColumn("С/С", format="%d ₽"),
+                "Кол-во": st.column_config.NumberColumn("Кол-во", format="%d"),
+                "Маржа/шт": st.column_config.NumberColumn("Маржа/шт", format="%d ₽"),
             }
         )
