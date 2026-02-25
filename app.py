@@ -48,7 +48,7 @@ if st.session_state.is_admin and st.session_state.admin_fullscreen:
     admin_view.render_admin_panel(None, default_tab=st.session_state.admin_fullscreen_tab)
     st.stop()
 
-st.title(f"📊 Аналитика: {st.session_state.auth_user['full_name']}")
+st.title(f"📊 Аналитика: {st.session_state.auth_user.full_name}")
 
 # --- VIEW CACHING HELPER ---
 def get_view_cached(key, compute_func):

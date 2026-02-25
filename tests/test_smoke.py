@@ -1,11 +1,18 @@
 import pytest
 import sys
 import streamlit as st  # noqa: TID251
+from use_cases.session_models import UserSession
 
 def test_imports():
     """Ensure core modules can be imported without crashing."""
     # Mock session state for app.py top-level execution
-    st.session_state.auth_user = {"id": 1, "full_name": "Smoke Test", "role": "admin", "status": "approved"}
+    st.session_state.auth_user = UserSession(
+        id=1,
+        full_name="Smoke Test",
+        login="smoke",
+        role="admin",
+        status="approved",
+    )
     st.session_state.is_admin = True
     st.session_state.admin_fullscreen = False
 

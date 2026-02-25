@@ -27,6 +27,6 @@ def ensure_authenticated_session() -> AuthFlowResult:
         return AuthFlowResult(status="STOP", reason="auth_required")
 
     session_manager.validate_current_session()
-    auth_user = session_manager.st.session_state.get("auth_user") or {}
-    user_id = auth_user.get("id") if isinstance(auth_user, dict) else None
+    auth_user = session_manager.st.session_state.get("auth_user")
+    user_id = auth_user.id if auth_user is not None else None
     return AuthFlowResult(status="CONTINUE", reason="authenticated", user_id=user_id)

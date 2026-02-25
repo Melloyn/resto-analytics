@@ -3,6 +3,7 @@ from unittest.mock import patch
 import streamlit as st
 
 from use_cases import auth_flow
+from use_cases.session_models import UserSession
 
 
 @patch("use_cases.auth_flow.session_manager.validate_current_session")
@@ -33,7 +34,13 @@ def test_ensure_authenticated_session_continue_with_user(
     st.session_state.clear()
 
     def set_user():
-        st.session_state.auth_user = {"id": 42, "full_name": "Tester"}
+        st.session_state.auth_user = UserSession(
+            id=42,
+            full_name="Tester",
+            login="tester",
+            role="user",
+            status="approved",
+        )
 
     mock_restore.side_effect = set_user
     result = auth_flow.ensure_authenticated_session()

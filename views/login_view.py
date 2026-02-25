@@ -1,6 +1,7 @@
 import streamlit as st
 import auth
 import streamlit.components.v1 as components
+from use_cases.session_models import UserSession
 
 def render_auth_screen():
     # Recover cookie from localStorage if browser lost it (after idle/restart).
@@ -47,13 +48,13 @@ def render_auth_screen():
                         user["id"],
                         user_agent=st.context.headers.get("user-agent"),
                     )
-                    st.session_state.auth_user = {
-                        "id": user["id"],
-                        "full_name": user["full_name"],
-                        "login": user["login"],
-                        "role": user["role"],
-                        "status": user["status"],
-                    }
+                    st.session_state.auth_user = UserSession(
+                        id=user["id"],
+                        full_name=user["full_name"],
+                        login=user["login"],
+                        role=user["role"],
+                        status=user["status"],
+                    )
                     st.session_state.auth_token = token
                     
                     # Persist browser cookie for refresh survival

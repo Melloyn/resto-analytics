@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import patch
 import streamlit as st
+from use_cases.session_models import UserSession
 from utils import session_manager
 
 def test_init_session_state():
@@ -22,7 +23,13 @@ def test_init_session_state_sets_session_diag_seen_default():
 @patch('utils.session_manager.clear_browser_auth_token')
 @patch('auth.drop_runtime_session')
 def test_logout(mock_drop, mock_clear, mock_rerun):
-    st.session_state.auth_user = {"id": 1}
+    st.session_state.auth_user = UserSession(
+        id=1,
+        full_name="Test User",
+        login="test",
+        role="user",
+        status="approved",
+    )
     st.session_state.auth_token = "fake_token"
     
     session_manager.logout()
