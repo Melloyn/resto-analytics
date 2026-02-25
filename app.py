@@ -59,6 +59,13 @@ def get_view_cached(key, compute_func):
     st.session_state.view_cache[full_key] = val
     return val
 
+# Safe defaults for headless/bare imports where st.stop() might not halt execution.
+df_current = pd.DataFrame()
+df_prev = pd.DataFrame()
+selected_period = None
+current_label = ""
+prev_label = ""
+
 # --- SIDEBAR ---
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/17929/17929252.png", width=70)
