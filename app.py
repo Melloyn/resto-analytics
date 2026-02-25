@@ -275,33 +275,26 @@ if not df_current.empty:
             elif i['level'] == 'success': st.success(i['message'])
 
     # --- TABS ---
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "Выручка (Меню)", "Инфляция С/С", 
-        "ABC-анализ", "Симулятор цен", 
-        "Дни недели", "Закупки"
-    ])
-    
-    with tab1:
-        menu_view.render_menu(df_current, df_prev, current_label, prev_label)
-        with st.expander("🔬 Расширенные разделы", expanded=False):
-            adv_tab = st.radio("Дополнительно", ["📉 Динамика"], horizontal=True, label_visibility="collapsed")
-            if adv_tab == "📉 Динамика":
-                menu_view.render_dynamics(df_full, df_current)
-    
-    with tab2:
-        inflation_view.render_inflation(df_full, df_current, selected_period['end'], selected_period['inflation_start'])
-        
-    with tab3:
-        abc_view.render_abc(df_current)
-        
-    with tab4:
-        simulator_view.render_simulator(df_current, df_full)
-        
-    with tab5:
-        weekday_view.render_weekdays(df_current, df_prev, current_label, prev_label)
-        
-    with tab6:
-        procurement_view.render_procurement_v2(df_current, df_full, selected_period['days'])
+    tabs = st.tabs(list(report_flow.REPORT_TAB_LABELS))
+    for tab, tab_label in zip(tabs, report_flow.REPORT_TAB_LABELS):
+        route = report_flow.select_report_route(tab_label)
+        with tab:
+            if route == report_flow.ReportRoute.MENU:
+                menu_view.render_menu(df_current, df_prev, current_label, prev_label)
+                with st.expander("🔬 Расширенные разделы", expanded=False):
+                    adv_tab = st.radio("Дополнительно", ["📉 Динамика"], horizontal=True, label_visibility="collapsed")
+                    if adv_tab == "📉 Динамика":
+                        menu_view.render_dynamics(df_full, df_current)
+            elif route == report_flow.ReportRoute.INFLATION:
+                inflation_view.render_inflation(df_full, df_current, selected_period['end'], selected_period['inflation_start'])
+            elif route == report_flow.ReportRoute.ABC:
+                abc_view.render_abc(df_current)
+            elif route == report_flow.ReportRoute.SIMULATOR:
+                simulator_view.render_simulator(df_current, df_full)
+            elif route == report_flow.ReportRoute.WEEKDAYS:
+                weekday_view.render_weekdays(df_current, df_prev, current_label, prev_label)
+            elif route == report_flow.ReportRoute.PROCUREMENT:
+                procurement_view.render_procurement_v2(df_current, df_full, selected_period['days'])
 
 else:
     from streamlit_lottie import st_lottie

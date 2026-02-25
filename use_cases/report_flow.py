@@ -2,9 +2,43 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from enum import Enum
 from typing import Any, Optional, Tuple
 
 import pandas as pd
+
+
+class ReportRoute(str, Enum):
+    MENU = "menu"
+    INFLATION = "inflation"
+    ABC = "abc"
+    SIMULATOR = "simulator"
+    WEEKDAYS = "weekdays"
+    PROCUREMENT = "procurement"
+
+
+REPORT_TAB_LABELS: Tuple[str, ...] = (
+    "Выручка (Меню)",
+    "Инфляция С/С",
+    "ABC-анализ",
+    "Симулятор цен",
+    "Дни недели",
+    "Закупки",
+)
+
+_ROUTE_BY_LABEL = {
+    "Выручка (Меню)": ReportRoute.MENU,
+    "Инфляция С/С": ReportRoute.INFLATION,
+    "ABC-анализ": ReportRoute.ABC,
+    "Симулятор цен": ReportRoute.SIMULATOR,
+    "Дни недели": ReportRoute.WEEKDAYS,
+    "Закупки": ReportRoute.PROCUREMENT,
+}
+
+
+def select_report_route(selected_tab_label: str) -> ReportRoute:
+    """Map selected report tab label to route id with safe fallback."""
+    return _ROUTE_BY_LABEL.get(selected_tab_label, ReportRoute.MENU)
 
 
 @dataclass(frozen=True)
