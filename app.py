@@ -2,6 +2,10 @@ import streamlit as st
 import pandas as pd
 import streamlit.components.v1 as components
 import os
+
+from infrastructure.observability import setup_observability
+setup_observability()
+
 import telegram_utils
 from streamlit_option_menu import option_menu
 
@@ -48,6 +52,14 @@ if st.session_state.is_admin and st.session_state.admin_fullscreen:
         st.rerun()
     admin_view.render_admin_panel(None, default_tab=st.session_state.admin_fullscreen_tab)
     st.stop()
+
+# Build Sentry Context
+try:
+    import sentry_sdk
+    if sentry_sdk.Hub.current.client:
+        sentry_sdk.set_user({"id": st.session_state.auth_user.id, "role": st.session_state.auth_user.role, "username": st.session_state.auth_user.login})
+except (ImportError, AttributeError):
+    pass
 
 st.title(f"📊 Аналитика: {st.session_state.auth_user.full_name}")
 
@@ -277,6 +289,12 @@ with st.sidebar:
         # Keep selection in sync
         if selected_tab_label != st.session_state.current_nav_tab:
             st.session_state.current_nav_tab = selected_tab_label
+            try:
+                import sentry_sdk
+                if sentry_sdk.Hub.current.client:
+                    sentry_sdk.set_tag("app.tab", selected_tab_label)
+            except (ImportError, AttributeError):
+                pass
 
     else:
         st.info("👈 Загрузите данные в боковом меню.")

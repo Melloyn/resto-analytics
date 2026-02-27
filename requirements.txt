@@ -13,3 +13,4 @@ streamlit-aggrid
 pandera
 streamlit-option-menu
 ruff==0.6.9
+sentry-sdk>=2.0.0
