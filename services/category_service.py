@@ -2,8 +2,11 @@ import json
 import os
 import requests
 import pandas as pd
+import logging
 from typing import List, Dict, Any, Optional, Union
 from services import parsing_service
+
+log = logging.getLogger(__name__)
 
 MAPPING_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "categories.json")
 YANDEX_MAPPING_PATH = "RestoAnalytic/categories.json"
@@ -23,7 +26,7 @@ def load_categories() -> Dict[str, str]:
             with open(MAPPING_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
-            print(f"Error loading categories: {e}")
+            log.error(f"Error loading categories: {e}")
             return {}
     return {}
 
@@ -34,9 +37,9 @@ def save_categories(new_map: Dict[str, str]) -> Dict[str, str]:
     try:
         with open(MAPPING_FILE, 'w', encoding='utf-8') as f:
             json.dump(current, f, ensure_ascii=False, indent=4)
-            print(f"Updated categories saved to {MAPPING_FILE}")
+            log.info(f"Updated categories saved to {MAPPING_FILE}")
     except Exception as e:
-        print(f"Error saving categories: {e}")
+        log.error(f"Error saving categories: {e}")
     return current
 
 def save_categories_full(full_map: Dict[str, str]) -> Dict[str, str]:
@@ -45,7 +48,7 @@ def save_categories_full(full_map: Dict[str, str]) -> Dict[str, str]:
         with open(MAPPING_FILE, 'w', encoding='utf-8') as f:
             json.dump(full_map, f, ensure_ascii=False, indent=4)
     except Exception as e:
-        print(f"Error saving full categories: {e}")
+        log.error(f"Error saving full categories: {e}")
     return full_map
 
 def get_all_known_categories() -> List[str]:
@@ -80,7 +83,7 @@ def sync_from_yandex(token: str, remote_path: str = YANDEX_MAPPING_PATH) -> bool
                     try:
                         remote_data = json.loads(dl.content.decode('utf-8-sig'))
                     except:
-                        print("Failed to parse remote JSON")
+                        log.error("Failed to parse remote JSON")
                         return False
 
                 if not isinstance(remote_data, dict):
@@ -95,14 +98,14 @@ def sync_from_yandex(token: str, remote_path: str = YANDEX_MAPPING_PATH) -> bool
                 
                 with open(MAPPING_FILE, 'w', encoding='utf-8') as f:
                     json.dump(merged, f, ensure_ascii=False, indent=4)
-                print("Synced from Yandex successfully.")
+                log.info("Synced from Yandex successfully.")
                 return True
         elif resp.status_code == 404:
             # Remote file doesn't exist yet, that's fine, keep local
-            print("Remote categories not found (404).")
+            log.warning("Remote categories not found (404).")
             return True
     except Exception as e:
-        print(f"Sync error (from): {e}")
+        log.error(f"Sync error (from): {e}", exc_info=True)
     return False
 
 def sync_to_yandex(token: str, remote_path: str = YANDEX_MAPPING_PATH) -> bool:
@@ -123,14 +126,14 @@ def sync_to_yandex(token: str, remote_path: str = YANDEX_MAPPING_PATH) -> bool:
                 # Use data=f for raw body upload, not files= (multipart)
                 up = requests.put(href, data=f)
                 if up.status_code in [201, 202]:
-                    print("Synced to Yandex successfully.")
+                    log.info("Synced to Yandex successfully.")
                     return True
                 else:
-                    print(f"Upload failed: {up.status_code} {up.text}")
+                    log.error(f"Upload failed: {up.status_code} {up.text}")
         else:
-            print(f"Get upload link failed: {resp.status_code} {resp.text}")
+            log.error(f"Get upload link failed: {resp.status_code} {resp.text}")
     except Exception as e:
-        print(f"Sync error (to): {e}")
+        log.error(f"Sync error (to): {e}", exc_info=True)
     return False
 
 # --- CONFIG & DETECTION LOGIC ---
@@ -148,7 +151,7 @@ def load_config() -> Dict[str, Any]:
                 _CONFIG_CACHE = json.load(f)
                 return _CONFIG_CACHE
         except Exception as e:
-            print(f"Error loading config: {e}")
+            log.error(f"Error loading config: {e}")
             return {}
     return {}
 

@@ -3,8 +3,14 @@ import pandas as pd
 from io import BytesIO
 import toml
 import time
+import logging
 from services import data_loader
 from infrastructure.storage.yandex_disk_storage import YandexDiskStorage
+
+from infrastructure.observability import setup_observability
+setup_observability()
+
+log = logging.getLogger(__name__)
 
 # Load secrets
 try:
@@ -17,9 +23,9 @@ CACHE_FILE = "data_cache.parquet"
 YANDEX_PATH = "Отчеты_Ресторан" # Make sure this matches your Yandex Disk folder
 
 def sync_from_yandex():
-    print(f"🔄 Starting Yandex Sync at {time.ctime()}")
+    log.info(f"🔄 Starting Yandex Sync at {time.ctime()}")
     if not YANDEX_TOKEN:
-        print("❌ No Yandex Token found.")
+        log.error("❌ No Yandex Token found.")
         return
 
     storage = YandexDiskStorage()
@@ -33,7 +39,7 @@ def sync_from_yandex():
         # Check if root has subfolders
         items = storage.list_directory(YANDEX_PATH, YANDEX_TOKEN, limit=1000)
         if not items:
-            print("⚠️ No files found or failed to read root folder.")
+            log.warning("⚠️ No files found or failed to read root folder.")
             return
         
         folders = [i for i in items if i['type'] == 'dir']
@@ -44,7 +50,7 @@ def sync_from_yandex():
             try:
                 content = storage.download_file_stream(file_url, YANDEX_TOKEN)
                 if not content:
-                    print(f"   ❌ Network Error {filename}")
+                    log.error(f"   ❌ Network Error {filename}")
                     return
                     
                 df, err, warns, dropped = data_loader.process_single_file(BytesIO(content), filename)
@@ -54,7 +60,7 @@ def sync_from_yandex():
                     dropped_summary['cost'] += dropped['cost']
 
                 for warn in warns:
-                    print(f"   ℹ️ {filename}: {warn}")
+                    log.warning(f"   ℹ️ {filename}: {warn}")
 
                 if df is not None:
                     df['Точка'] = venue

@@ -1,6 +1,9 @@
 import pandas as pd
 import re
 from io import BytesIO
+import logging
+
+log = logging.getLogger(__name__)
 
 def normalize_name(name):
     """Normalize string: lower case, strip, remove specific suffixes."""
@@ -42,23 +45,23 @@ def parse_ttk(file_content, filename=""):
 
     for idx, row in enumerate(rows):
         row_str = [str(v).lower().strip() for v in row]
-        print(f"Row {idx}: {row_str}")
+        # log.debug(f"Row {idx}: {row_str}")
         
         # 1. Look for Dish Name
         if not parsing_ingredients:
             if "наименование блюда" in " ".join(row_str):
-                print(f"Found 'наименование блюда' at row {idx}")
+                # log.debug(f"Found 'наименование блюда' at row {idx}")
                 vals = [str(v).strip() for v in row if str(v).lower() != 'nan' and str(v).strip() != '']
                 for i, v in enumerate(vals):
                     if "наименование блюда" in v.lower():
                         if i + 1 < len(vals):
                             current_dish_name = normalize_name(vals[i+1])
-                            print(f"Set dish name to: {current_dish_name}")
+                            # log.debug(f"Set dish name to: {current_dish_name}")
                             break
             
             # 2. Look for Table Header "Наименование продукта"
             if "наименование продукта" in " ".join(row_str) and current_dish_name:
-                print(f"Found ingredient header at row {idx}")
+                # log.debug(f"Found ingredient header at row {idx}")
                 parsing_ingredients = True
                 current_ingredients = []
                 continue # Skip header row
@@ -68,7 +71,7 @@ def parse_ttk(file_content, filename=""):
             # Stop conditions
             first_cell = str(row[1]).strip().lower() # Column B
             if "выход" in first_cell or "технология" in first_cell or "наименование блюда" in " ".join(row_str):
-                print(f"Found stop condition '{first_cell}' or 'наименование блюда' at row {idx}")
+                # log.debug(f"Found stop condition '{first_cell}' or 'наименование блюда' at row {idx}")
                 if current_dish_name and current_ingredients:
                     found_recipes.append({
                         "dish_name": current_dish_name, 
@@ -96,7 +99,7 @@ def parse_ttk(file_content, filename=""):
                 unit = str(row[2]).strip()
                 net_val = row[5]
                 qty = clean_num(net_val)
-                print(f"Parsed {ing_name}: net_val={net_val}, qty={qty}, unit={unit}")
+                # log.debug(f"Parsed {ing_name}: net_val={net_val}, qty={qty}, unit={unit}")
                 if qty == 0:
                      qty = clean_num(row[7]) if len(row) > 7 else 0
 
@@ -107,7 +110,7 @@ def parse_ttk(file_content, filename=""):
                         "qty_per_dish": qty
                     })
             except Exception as e:
-                print(f"Exception on row {idx}: {e}")
+                log.error(f"Exception on row {idx}: {e}")
                 continue
 
     # End of file - save last if exists
