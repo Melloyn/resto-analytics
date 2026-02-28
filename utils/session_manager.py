@@ -59,12 +59,20 @@ def init_session_state():
         st.session_state.users_synced = False
     if "session_diag_seen" not in st.session_state:
         st.session_state.session_diag_seen = False
+    if "csrf_token" not in st.session_state:
+        import uuid
+        st.session_state.csrf_token = str(uuid.uuid4())
 
 def clear_browser_auth_token():
+    import os
+    cookie_secure = "true" if os.getenv("FORCE_HTTPS", "False").lower() == "true" else "false"
     components.html(
-        """
+        f"""
         <script>
-          document.cookie = "resto_auth_token=; path=/; max-age=0; SameSite=Lax";
+          var cookieStr = "resto_auth_token=; path=/; max-age=0; SameSite=Lax";
+          if ({cookie_secure}) {{ cookieStr += "; Secure"; }}
+          document.cookie = cookieStr;
+          
           localStorage.removeItem("resto_auth_token");
           sessionStorage.removeItem("resto_auto_login_attempted");
         </script>

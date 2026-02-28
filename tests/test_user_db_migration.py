@@ -51,7 +51,7 @@ def test_migration_from_empty(tmp_path):
     
     with sqlite3.connect(str(db_file)) as conn:
         version = conn.execute("SELECT version FROM schema_info").fetchone()[0]
-        assert version == 1
+        assert version == 2
         
         # Verify all tables created
         tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
@@ -71,7 +71,7 @@ def test_migration_from_legacy_full(tmp_path):
     
     with sqlite3.connect(str(db_file)) as conn:
         version = conn.execute("SELECT version FROM schema_info").fetchone()[0]
-        assert version == 1
+        assert version == 2
 
 
 def test_migration_from_legacy_partial(tmp_path):
@@ -84,7 +84,7 @@ def test_migration_from_legacy_partial(tmp_path):
     
     with sqlite3.connect(str(db_file)) as conn:
         version = conn.execute("SELECT version FROM schema_info").fetchone()[0]
-        assert version == 1
+        assert version == 2
         
         tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         table_names = {t[0] for t in tables}
@@ -105,4 +105,4 @@ def test_migration_idempotence(tmp_path):
     
     with sqlite3.connect(str(db_file)) as conn:
         version = conn.execute("SELECT version FROM schema_info").fetchone()[0]
-        assert version == 1
+        assert version == 2

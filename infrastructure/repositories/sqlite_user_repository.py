@@ -66,9 +66,29 @@ class SQLiteUserRepository:
             )
         """)
 
+    def _migrate_v2(self, conn):
+        """V2 schema: Add audit_log table for RBAC/Auditing tracking."""
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                actor_user_id INTEGER,
+                actor_role TEXT,
+                action TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                target_id TEXT,
+                metadata_json TEXT,
+                ip_address TEXT,
+                result TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_ts ON audit_log(ts)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_actor_id ON audit_log(actor_user_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action)")
+
     def init_auth_db(self):
         # We assign function pointers, so TypeChecker won't yell if we explicitly ignore or wrap
-        MIGRATIONS = [self._migrate_v1]
+        MIGRATIONS = [self._migrate_v1, self._migrate_v2]
         
         with self._conn() as conn:
             # 1. Ensure schema_info table exists
@@ -129,12 +149,12 @@ class SQLiteUserRepository:
             conn.execute("DELETE FROM login_attempts WHERE login = ?", (login,))
             conn.commit()
 
-    def get_user_by_login(self, login: str):
+    def get_user_by_login(self, identifier: str):
         with self._conn() as conn:
             row = conn.execute("""
                 SELECT id, full_name, login, email, phone, password_salt, password_hash, role, status
-                FROM users WHERE login = ?
-            """, (login,)).fetchone()
+                FROM users WHERE login = ? OR email = ?
+            """, (identifier, identifier)).fetchone()
             if row:
                 return {
                     "id": row[0], "full_name": row[1], "login": row[2], "email": row[3], "phone": row[4],

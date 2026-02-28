@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 import auth
 import streamlit.components.v1 as components
 from use_cases.session_models import UserSession
@@ -38,7 +39,7 @@ def render_auth_screen():
 
     with tab_login:
         with st.form("login_form", clear_on_submit=False):
-            login = st.text_input("Логин")
+            login = st.text_input("Логин / Email")
             password = st.text_input("Пароль", type="password")
             submitted = st.form_submit_button("Войти")
             if submitted:
@@ -58,13 +59,21 @@ def render_auth_screen():
                     st.session_state.auth_token = token
                     
                     # Persist browser cookie for refresh survival
+                    cookie_secure = "true" if os.getenv("FORCE_HTTPS", "False").lower() == "true" else "false"
                     # Use both document.cookie and parent.document.cookie for iframe compatibility
                     components.html(
                         f"""
                         <script>
                             var token = "{token}";
                             var maxAge = 2592000; // 30 days
+                            var isSecure = {cookie_secure};
                             var cookieStr = "resto_auth_token=" + encodeURIComponent(token) + "; path=/; max-age=" + maxAge + "; SameSite=Lax";
+                            if (isSecure) {{
+                                cookieStr += "; Secure";
+                            }}
+                                                        
+                            // NOTE: HttpOnly cannot be set via JavaScript document.cookie, 
+                            // but SameSite=Lax and Secure protect against CSRF and MITM.
                             
                             document.cookie = cookieStr;
                             localStorage.setItem("resto_auth_token", token);
@@ -96,8 +105,11 @@ def render_auth_screen():
             password_confirm = st.text_input("Подтверждение пароля *", type="password")
             submitted = st.form_submit_button("Зарегистрироваться")
             if submitted:
+                import re
                 if not all([full_name.strip(), login.strip(), email.strip(), phone.strip(), password, password_confirm]):
                     st.error("Заполните все обязательные поля.")
+                elif not re.match(r"[^@]+@[^@]+\.[^@]+", email.strip()):
+                    st.error("Неверный формат почты.")
                 elif password != password_confirm:
                     st.error("Пароли не совпадают.")
                 elif len(password) < 8:

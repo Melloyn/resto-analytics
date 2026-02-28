@@ -7,7 +7,6 @@ from infrastructure.observability import setup_observability
 setup_observability()
 
 import telegram_utils
-from streamlit_option_menu import option_menu
 
 from views.reports import (
     kpi_view, inflation_view, export_view,
@@ -24,6 +23,61 @@ from datetime import datetime
 
 # --- НАСТРОЙКИ СТРАНИЦЫ ---
 st.set_page_config(page_title="RestoAnalytics: Место", layout="wide", initial_sidebar_state="expanded")
+
+# --- ВОРОНКА БЕЗОПАСНОСТИ (PROD HARDENING) ---
+FORCE_HTTPS = os.getenv("FORCE_HTTPS", "False").lower() == "true"
+TRUST_PROXY = os.getenv("TRUST_PROXY", "False").lower() == "true"
+
+# Health Check (Basic load-balancer heartbeat)
+if st.query_params.get("health") == "1":
+    st.write({"status": "ok", "version": "1.0", "uptime": datetime.utcnow().isoformat()})
+    st.stop()
+
+def get_client_ip():
+    """Extract IP honoring TRUST_PROXY ENV for reverse proxies."""
+    if TRUST_PROXY:
+        forwarded = st.context.headers.get("x-forwarded-for")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+        real_ip = st.context.headers.get("x-real-ip")
+        if real_ip:
+            return real_ip.strip()
+    return "127.0.0.1" # Streamlit doesn't natively expose direct IP easily without headers
+
+# Enforce HTTPS redirect strictly if demanded
+if FORCE_HTTPS:
+    proto = st.context.headers.get("x-forwarded-proto", "http").lower()
+    if proto != "https":
+         # In a true proxy environment, we warn/halt or tell Nginx to redirect. 
+         # Since Streamlit cannot easily issue 301 natively midway, we halt.
+         st.error("🚨 Insecure Connection / Небезопасное соединение. Пожалуйста, используйте HTTPS.")
+         st.stop()
+
+# Emulate Basic Security Headers via HTML injection (where possible)
+components.html(
+    """
+    <script>
+    // Streamlit prevents raw HTTP header mutation from the python script layer,
+    // but we can enforce frontend frame/sniff policies via DOM meta injections securely.
+    var meta1 = document.createElement('meta');
+    meta1.httpEquiv = "X-Content-Type-Options";
+    meta1.content = "nosniff";
+    document.getElementsByTagName('head')[0].appendChild(meta1);
+    
+    var meta2 = document.createElement('meta');
+    meta2.httpEquiv = "X-Frame-Options";
+    meta2.content = "DENY";
+    document.getElementsByTagName('head')[0].appendChild(meta2);
+    
+    var meta3 = document.createElement('meta');
+    meta3.name = "referrer";
+    meta3.content = "no-referrer";
+    document.getElementsByTagName('head')[0].appendChild(meta3);
+    </script>
+    """,
+    height=0,
+)
+
 
 # --- СТИЛИ И ЭФФЕКТЫ ---
 ui.setup_style()
@@ -65,14 +119,14 @@ st.title(f"📊 Аналитика: {st.session_state.auth_user.full_name}")
 
 # --- DATA & COMPUTE CACHING ---
 @st.cache_data(show_spinner=False)
-def _cached_build_report_context(df_full, period_mode, selected_ym, scope_mode, selected_day, compare_mode):
+def _cached_build_report_context(_df_full, data_version, period_mode, selected_ym, scope_mode, selected_day, compare_mode, date_range=None):
     return report_flow.build_report_context(
-        df_full, period_mode, selected_ym=selected_ym, scope_mode=scope_mode, selected_day=selected_day, compare_mode=compare_mode
+        _df_full, period_mode, selected_ym=selected_ym, scope_mode=scope_mode, selected_day=selected_day, compare_mode=compare_mode, date_range=date_range
     )
 
 @st.cache_data(show_spinner=False)
-def _cached_calculate_insights(df_curr, df_prev, cur_rev, prev_rev, cur_fc):
-    return analytics_service.calculate_insights(df_curr, df_prev, cur_rev, prev_rev, cur_fc)
+def _cached_calculate_insights(_df_curr, _df_prev, data_version, cur_rev, prev_rev, cur_fc):
+    return analytics_service.calculate_insights(_df_curr, _df_prev, cur_rev, prev_rev, cur_fc)
 
 # Safe defaults for headless/bare imports where st.stop() might not halt execution.
 df_current = pd.DataFrame()
@@ -142,19 +196,22 @@ with st.sidebar:
                 st.error("Нет токена Yandex Disk!")
             else:
                 if st.button("🔄 Скачать и Обновить", type="primary", use_container_width=True):
-                    ui.show_loading_overlay("Связываюсь с облаком...")
-                    success, msg = data_loader.download_and_process_yandex(yd_token, st.session_state.yandex_path)
-                    if success:
-                        st.success("Данные обновлены!")
-                        st.session_state.dropped_stats = data_loader.get_last_sync_meta().get(
-                            "dropped_stats",
-                            {"count": 0, "cost": 0.0, "items": []},
-                        )
-                        st.session_state.df_full = None
-                        st.rerun()
+                    from use_cases import rbac_policy
+                    if not rbac_policy.enforce(st.session_state.auth_user, "SYNC_DATA"):
+                        st.error("Недостаточно прав для выполнения синхронизации.")
                     else:
-                        st.error(msg)
-
+                        ui.show_loading_overlay("Связываюсь с облаком...")
+                        success, msg = data_loader.download_and_process_yandex(yd_token, st.session_state.yandex_path)
+                        if success:
+                            st.success("Данные обновлены!")
+                            st.session_state.dropped_stats = data_loader.get_last_sync_meta().get(
+                                "dropped_stats",
+                                {"count": 0, "cost": 0.0, "items": []},
+                            )
+                            st.session_state.df_full = None
+                            st.rerun()
+                        else:
+                            st.error(msg)
         elif source_type == "📂 Локальная папка":
             if st.button("🔄 Загрузить из кэша"):
                  st.session_state.df_full = None
@@ -214,9 +271,15 @@ with st.sidebar:
             report_context = report_flow.ReportContext()
             
             if period_mode == "📌 Последний загруженный день":
-                report_context = report_flow.build_report_context(
+                report_context = _cached_build_report_context(
                     df_full,
+                    id(df_full),
                     period_mode,
+                    None,
+                    "",
+                    None,
+                    "",
+                    None
                 )
 
             elif period_mode == "📅 Месяц (Сравнение)":
@@ -241,19 +304,26 @@ with st.sidebar:
                      compare_mode = st.selectbox("Сравнить с:", ["Предыдущий месяц", "Год назад", "Нет"], index=1)
                      report_context = _cached_build_report_context(
                         df_full,
+                        id(df_full),
                         period_mode,
-                        selected_ym=selected_ym,
-                        scope_mode=scope_mode,
-                        selected_day=selected_day,
-                        compare_mode=compare_mode,
+                        selected_ym,
+                        scope_mode,
+                        selected_day,
+                        compare_mode,
+                        None
                     )
 
             else: # "Диапазон"
                 d_range = st.date_input("Диапазон:", value=(min_date, max_date), min_value=min_date, max_value=max_date)
                 report_context = _cached_build_report_context(
                     df_full,
+                    id(df_full),
                     period_mode,
-                    date_range=d_range if isinstance(d_range, tuple) and len(d_range) == 2 else None,
+                    None,
+                    "",
+                    None,
+                    "",
+                    d_range if isinstance(d_range, tuple) and len(d_range) == 2 else None,
                 )
 
             df_current = report_context.df_current
@@ -268,33 +338,13 @@ with st.sidebar:
 
         st.divider()
         
-        # --- NAVIGATION ---
-        # Initialize default selection in session state if not present
-        if 'current_nav_tab' not in st.session_state:
-            st.session_state.current_nav_tab = report_flow.REPORT_TAB_LABELS[0]
-
-        selected_tab_label = option_menu(
-            menu_title="Навигация",
-            options=list(report_flow.REPORT_TAB_LABELS),
-            icons=["receipt", "graph-down-arrow", "bar-chart-steps", "sliders", "calendar-week", "box-seam"],
-            menu_icon="compass",
-            default_index=list(report_flow.REPORT_TAB_LABELS).index(st.session_state.current_nav_tab),
-            styles={
-                "container": {"padding": "0!important", "background-color": "transparent"},
-                "nav-link": {"font-size": "14px", "text-align": "left", "margin": "0px", "--hover-color": "#eee"},
-                "nav-link-selected": {"background-color": "#e0e0e0", "color": "black"},
-            }
-        )
-        
-        # Keep selection in sync
-        if selected_tab_label != st.session_state.current_nav_tab:
-            st.session_state.current_nav_tab = selected_tab_label
-            try:
-                import sentry_sdk
-                if sentry_sdk.Hub.current.client:
-                    sentry_sdk.set_tag("app.tab", selected_tab_label)
-            except (ImportError, AttributeError):
-                pass
+        # Sentry telemetry tracking
+        try:
+            import sentry_sdk
+            if sentry_sdk.Hub.current.client:
+                sentry_sdk.set_tag("app.tab", st.session_state.get("nav_tab", "Unknown"))
+        except (ImportError, AttributeError):
+            pass
 
     else:
         st.info("👈 Загрузите данные в боковом меню.")
@@ -312,7 +362,7 @@ if not df_current.empty:
     cur_fc = (cur_cost / cur_rev * 100) if cur_rev else 0
     
     with st.expander("💡 Smart Insights", expanded=True):
-        insights = _cached_calculate_insights(df_current, df_prev, cur_rev, prev_rev, cur_fc)
+        insights = _cached_calculate_insights(df_current, df_prev, id(df_current), cur_rev, prev_rev, cur_fc)
         for i in insights:
             if i.level == 'error': st.error(i.message)
             elif i.level == 'warning': st.warning(i.message)
@@ -320,24 +370,52 @@ if not df_current.empty:
 
     # --- MAIN VIEW ---
     st.divider()
-    route = report_flow.select_report_route(st.session_state.current_nav_tab)
     
-    if route == report_flow.ReportRoute.MENU:
-        menu_view.render_menu(df_current, df_prev, current_label, prev_label)
-        with st.expander("🔬 Расширенные разделы", expanded=False):
-            adv_tab = st.radio("Дополнительно", ["📉 Динамика"], horizontal=True, label_visibility="collapsed")
-            if adv_tab == "📉 Динамика":
-                menu_view.render_dynamics(df_full, df_current)
-    elif route == report_flow.ReportRoute.INFLATION:
-        inflation_view.render_inflation(df_full, df_current, selected_period.end, selected_period.inflation_start)
-    elif route == report_flow.ReportRoute.ABC:
-        abc_view.render_abc(df_current)
-    elif route == report_flow.ReportRoute.SIMULATOR:
-        simulator_view.render_simulator(df_current, df_full)
-    elif route == report_flow.ReportRoute.WEEKDAYS:
-        weekday_view.render_weekdays(df_current, df_prev, current_label, prev_label)
-    elif route == report_flow.ReportRoute.PROCUREMENT:
-        procurement_view.render_procurement_v2(df_current, df_full, selected_period.days)
+    # --- CENTRAL NAVIGATION (PILLS AS TABS) ---
+    if 'nav_tab' not in st.session_state:
+        st.session_state.nav_tab = list(report_flow.REPORT_TAB_LABELS)[0]
+
+    if os.getenv("DEBUG_NAV_TRACE", "0") == "1":
+        st.write(f"🔍 DEBUG_NAV_TRACE: Rerunning app.py. st.session_state.nav_tab = {st.session_state.nav_tab}")
+
+    # Render Pills. The key="nav_tab" ensures st.session_state is the SSOT.
+    st.pills(
+        "Навигация",
+        options=list(report_flow.REPORT_TAB_LABELS),
+        selection_mode="single",
+        default=st.session_state.nav_tab,
+        key="nav_tab",
+        label_visibility="collapsed"
+    )
+    
+    # Prevent rendering if somehow unselected (user clicked the active pill to deselect)
+    if not st.session_state.nav_tab:
+        st.session_state.nav_tab = list(report_flow.REPORT_TAB_LABELS)[0]
+
+    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+    
+    route = report_flow.select_report_route(st.session_state.nav_tab)
+    
+    @st.fragment
+    def _render_route_lazy(selected_route, df_curr, df_p, cur_l, prev_l, df_f, sel_p):
+        if selected_route == report_flow.ReportRoute.MENU:
+            menu_view.render_menu(df_curr, df_p, cur_l, prev_l)
+            with st.expander("🔬 Расширенные разделы", expanded=False):
+                adv_tab = st.radio("Дополнительно", ["📉 Динамика"], horizontal=True, label_visibility="collapsed")
+                if adv_tab == "📉 Динамика":
+                    menu_view.render_dynamics(df_f, df_curr)
+        elif selected_route == report_flow.ReportRoute.INFLATION and sel_p:
+            inflation_view.render_inflation(df_f, df_curr, sel_p.end, sel_p.inflation_start)
+        elif selected_route == report_flow.ReportRoute.ABC:
+            abc_view.render_abc(df_curr)
+        elif selected_route == report_flow.ReportRoute.SIMULATOR:
+            simulator_view.render_simulator(df_curr, df_f)
+        elif selected_route == report_flow.ReportRoute.WEEKDAYS:
+            weekday_view.render_weekdays(df_curr, df_p, cur_l, prev_l)
+        elif selected_route == report_flow.ReportRoute.PROCUREMENT and sel_p:
+            procurement_view.render_procurement_v2(df_curr, df_f, sel_p.days)
+
+    _render_route_lazy(route, df_current, df_prev, current_label, prev_label, df_full, selected_period)
 
 else:
     from streamlit_lottie import st_lottie

@@ -29,9 +29,11 @@ def test_download_file_failure(mock_get, storage, tmp_path):
     mock_get.side_effect = Exception("Network Error")
     
     local_path = tmp_path / "test.db"
-    result = storage.download_file("remote/path", str(local_path), "fake_token", force=True)
     
-    assert result is False
+    with pytest.raises(RuntimeError) as exc_info:
+        storage.download_file("remote/path", str(local_path), "fake_token", force=True)
+    
+    assert "Yandex Disk Network Error" in str(exc_info.value)
 
 @patch('requests.get')
 @patch('requests.put')

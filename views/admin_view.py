@@ -5,6 +5,8 @@ import os
 import requests
 from services import category_service
 from services import parsing_service
+from use_cases import rbac_policy
+from infrastructure.repositories.sqlite_audit_repository import AuditAction
 
 from datetime import datetime
 
@@ -65,13 +67,17 @@ def _render_misc_tab():
             st.info("Нет выбранных назначений.")
 
 def render_admin_panel(main_loader_slot, default_tab=None):
+    if not rbac_policy.enforce(st.session_state.auth_user, "ACCESS_ADMIN_PANEL"):
+        st.error("Недостаточно прав для доступа к Панели Администратора.")
+        st.stop()
+        
     st.header("⚙️ Панель Администратора")
 
     if default_tab == "misc":
         _render_misc_tab()
         return
     
-    tab_users, tab_cats, tab_misc, tab_debug = st.tabs(["👥 Пользователи", "🏷 Категории", "📦 Прочее", "🐞 Debug"])
+    tab_users, tab_cats, tab_misc, tab_audit, tab_debug = st.tabs(["👥 Пользователи", "🏷 Категории", "📦 Прочее", "📜 Аудит", "🐞 Debug"])
 
     # --- TAB 1: USERS ---
     with tab_users:
@@ -85,10 +91,16 @@ def render_admin_panel(main_loader_slot, default_tab=None):
                     c1, c2, c3 = st.columns([1, 1, 1.2])
                     with c1:
                         if st.button("✅ Одобрить", key=f"approve_{user_id}", use_container_width=True):
+                            if not rbac_policy.enforce(st.session_state.auth_user, "MANAGE_USERS"):
+                                st.error("Недостаточно прав.")
+                                st.stop()
                             auth.update_user_status(user_id, "approved")
                             st.rerun()
                     with c2:
                         if st.button("⛔ Отклонить", key=f"reject_{user_id}", use_container_width=True):
+                            if not rbac_policy.enforce(st.session_state.auth_user, "MANAGE_USERS"):
+                                st.error("Недостаточно прав.")
+                                st.stop()
                             auth.update_user_status(user_id, "rejected")
                             st.rerun()
                     with c3:
@@ -99,6 +111,9 @@ def render_admin_panel(main_loader_slot, default_tab=None):
                             label_visibility="collapsed"
                         )
                         if st.button("💾 Роль", key=f"save_role_{user_id}", use_container_width=True):
+                            if not rbac_policy.enforce(st.session_state.auth_user, "MANAGE_USERS"):
+                                st.error("Недостаточно прав.")
+                                st.stop()
                             auth.update_user_role(user_id, role_choice)
                             st.rerun()
                     st.divider()
@@ -124,16 +139,24 @@ def render_admin_panel(main_loader_slot, default_tab=None):
         
         with c_sync1:
             if st.button("☁️ Загрузить из Yandex.Disk"):
-                if category_service.sync_from_yandex(yd_token):
+                if not rbac_policy.enforce(st.session_state.auth_user, "SYNC_DATA"):
+                    st.error("Недостаточно прав.")
+                elif category_service.sync_from_yandex(yd_token):
+                    auth.get_audit_repo().log_action(AuditAction.YANDEX_SYNC_DOWNLOAD, "category", actor_user_id=st.session_state.auth_user.id, actor_role=st.session_state.auth_user.role, result="success")
                     st.success("Категории обновлены из облака!")
                     st.rerun()
                 else:
+                    auth.get_audit_repo().log_action(AuditAction.YANDEX_SYNC_DOWNLOAD, "category", actor_user_id=st.session_state.auth_user.id, actor_role=st.session_state.auth_user.role, result="fail")
                     st.error("Ошибка синхронизации (проверьте токен).")
         with c_sync2:
             if st.button("☁️ Сохранить в Yandex.Disk"):
-                if category_service.sync_to_yandex(yd_token):
+                if not rbac_policy.enforce(st.session_state.auth_user, "SYNC_DATA"):
+                    st.error("Недостаточно прав.")
+                elif category_service.sync_to_yandex(yd_token):
+                    auth.get_audit_repo().log_action(AuditAction.YANDEX_SYNC_UPLOAD, "category", actor_user_id=st.session_state.auth_user.id, actor_role=st.session_state.auth_user.role, result="success")
                     st.success("Категории сохранены в облако!")
                 else:
+                    auth.get_audit_repo().log_action(AuditAction.YANDEX_SYNC_UPLOAD, "category", actor_user_id=st.session_state.auth_user.id, actor_role=st.session_state.auth_user.role, result="fail")
                     st.error("Ошибка выгрузки.")
 
         st.divider()
@@ -149,8 +172,15 @@ def render_admin_panel(main_loader_slot, default_tab=None):
             new_cat = c_add2.selectbox("Категория", all_cats)
             if st.form_submit_button("➕ Добавить / Обновить"):
                 if new_item.strip():
+                    if not rbac_policy.enforce(st.session_state.auth_user, "MANAGE_CATEGORIES"):
+                        st.error("Недостаточно прав.")
+                        st.stop()
                     new_item = new_item.strip().lower() # Normalize key
                     category_service.save_categories({new_item: new_cat})
+                    
+                    # Audit Category Add
+                    auth.get_audit_repo().log_action(AuditAction.CATEGORY_UPDATE, "category", actor_user_id=st.session_state.auth_user.id, actor_role=st.session_state.auth_user.role, target_id=new_item, metadata={"new_cat": new_cat})
+                    
                     yd_token = auth.get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
                     if yd_token:
                         category_service.sync_to_yandex(yd_token)
@@ -172,10 +202,16 @@ def render_admin_panel(main_loader_slot, default_tab=None):
             # Delete specific
             to_delete = st.text_input("Удалить блюдо (введите точное название):")
             if st.button("🗑 Удалить запись") and to_delete:
+                if not rbac_policy.enforce(st.session_state.auth_user, "MANAGE_CATEGORIES"):
+                    st.error("Недостаточно прав.")
+                    st.stop()
                 to_delete = to_delete.strip().lower()
                 if to_delete in current_map:
                     del current_map[to_delete]
                     category_service.save_categories_full(current_map)
+                    
+                    auth.get_audit_repo().log_action(AuditAction.CATEGORY_DELETE, "category", actor_user_id=st.session_state.auth_user.id, actor_role=st.session_state.auth_user.role, target_id=to_delete)
+                    
                     yd_token = auth.get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
                     if yd_token:
                         category_service.sync_to_yandex(yd_token)
@@ -187,8 +223,32 @@ def render_admin_panel(main_loader_slot, default_tab=None):
     # --- TAB 3: MISC / OTHER ---
     with tab_misc:
         _render_misc_tab()
+        
+    # --- TAB 4: AUDIT LOG ---
+    with tab_audit:
+        st.subheader("Журнал Безопасности (Audit Log)")
+        
+        c_filter1, c_filter2 = st.columns(2)
+        action_options = ["Все"] + [a.value for a in AuditAction]
+        selected_action = c_filter1.selectbox("Действие:", options=action_options)
+        selected_user = c_filter2.text_input("Пользователь (ID/Логин):", placeholder="Пусто = все")
+        
+        logs = auth.get_audit_repo().get_logs(
+            limit=250,
+            action_filter=selected_action if selected_action != "Все" else None,
+            user_filter=selected_user.strip() if selected_user.strip() else None
+        )
+        if logs:
+            df_audit = pd.DataFrame(
+                logs,
+                columns=["ID", "Время", "Пользователь", "Роль", "Действие", "Тип объекта", "Объект ID", "Метаданные", "IP Адрес", "Результат"]
+            )
+            df_audit["Время"] = pd.to_datetime(df_audit["Время"]).dt.strftime("%d.%m.%y %H:%M:%S")
+            st.dataframe(df_audit.drop(columns=["ID"]), use_container_width=True, hide_index=True)
+        else:
+            st.info("Журнал пуст.")
 
-    # --- TAB 4: DEBUG ---
+    # --- TAB 5: DEBUG ---
     with tab_debug:
         st.write("### 🐞 Debug: Отброшенные позиции")
         if st.session_state.dropped_stats and st.session_state.dropped_stats['count'] > 0:

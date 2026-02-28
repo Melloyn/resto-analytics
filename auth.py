@@ -1,13 +1,16 @@
 from infrastructure.repositories.sqlite_user_repository import SQLiteUserRepository
+from infrastructure.repositories.sqlite_audit_repository import SQLiteAuditRepository, AuditAction
+from infrastructure.storage.yandex_disk_storage import YandexDiskStorage
 import hashlib
 import hmac
 import secrets
 import os
 import streamlit as st
-from infrastructure.repositories.sqlite_user_repository import SQLiteUserRepository
-from infrastructure.storage.yandex_disk_storage import YandexDiskStorage
 from datetime import datetime, timedelta
 import base64
+import logging
+
+log = logging.getLogger(__name__)
 
 class UserAlreadyExistsError(Exception):
     pass
@@ -18,7 +21,15 @@ class InvalidCredentialsError(Exception):
 USERS_DB = "users.db"
 YANDEX_USERS_PATH = "RestoAnalytic/config/users.db"
 PASSWORD_ITERATIONS = 200_000
-SESSION_TTL_DAYS = 30
+SESSION_TTL_HOURS = int(os.getenv("SESSION_TTL_HOURS", 12))
+
+def _mask_identifier(identifier: str) -> str:
+    if not identifier: return "***"
+    if "@" in identifier:
+        parts = identifier.split("@")
+        name = parts[0]
+        return f"{name[:2]}***@{parts[1]}" if len(name) > 2 else f"***@{parts[1]}"
+    return f"{identifier[:2]}***" if len(identifier) > 2 else "***"
 
 def get_secret(key):
     try:
@@ -28,12 +39,19 @@ def get_secret(key):
 
 _user_repo = None
 _storage_provider = None
+_audit_repo = None
 
 def get_user_repo() -> SQLiteUserRepository:
     global _user_repo
     if _user_repo is None or _user_repo.db_path != USERS_DB:
         _user_repo = SQLiteUserRepository(USERS_DB)
     return _user_repo
+
+def get_audit_repo() -> SQLiteAuditRepository:
+    global _audit_repo
+    if _audit_repo is None or _audit_repo.db_path != USERS_DB:
+        _audit_repo = SQLiteAuditRepository(USERS_DB)
+    return _audit_repo
 
 def get_storage_provider() -> YandexDiskStorage:
     global _storage_provider
@@ -45,6 +63,25 @@ def sync_users_from_yandex(token, remote_path=YANDEX_USERS_PATH, force=False):
     return get_storage_provider().download_file(remote_path, USERS_DB, token, force=force)
 
 def sync_users_to_yandex(token, remote_path=YANDEX_USERS_PATH):
+    # SAFETY GUARD: Prevent wiping a populated cloud DB with a fresh 1-user local DB.
+    try:
+        users = get_all_users()
+        local_size = os.path.getsize(USERS_DB) if os.path.exists(USERS_DB) else 0
+        if len(users) <= 1:
+            remote_info = get_storage_provider().get_file_info(remote_path, token)
+            if remote_info:
+                remote_size = remote_info.get("size", 0)
+                # If remote file is larger by more than minor metadata bytes, it likely has more users
+                if remote_size > local_size + 1024:
+                    log.error(
+                        f"🚨 DB SAFETY GUARD ALARM: Aborting upload! "
+                        f"Local DB has only {len(users)} user(s) ({local_size} bytes), "
+                        f"but Cloud DB is larger ({remote_size} bytes). Prevents wiping data!"
+                    )
+                    return False
+    except Exception as e:
+        log.warning(f"⚠️ DB Safety guard check encountered an issue: {e}")
+
     return get_storage_provider().upload_file(USERS_DB, remote_path, token)
 
 @st.cache_resource
@@ -110,19 +147,30 @@ def _unsign_token(token: str):
         return None
 
 def create_user(full_name, login, email, phone, password, role="user", status="pending"):
+    login = login.strip().lower()
+    email = email.strip().lower()
     salt_hex, pw_hash = _make_password(password)
     created_at = datetime.utcnow().isoformat()
     success, err = get_user_repo().create_user(
         full_name, login, email, phone, salt_hex, pw_hash, role, status, created_at
     )
     if not success and err == "integrity_error":
+        log.warning(f"Auth: Attempt to create duplicate user: {_mask_identifier(email)}")
         raise UserAlreadyExistsError("User with this login or email already exists")
+    
+    get_audit_repo().log_action(
+        action=AuditAction.USER_CREATE,
+        target_type="user",
+        target_id=login,
+        metadata={"role": role, "status": status}
+    )
+    
     token = get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
     if token:
         sync_users_to_yandex(token)
 
 def authenticate_user(login, password):
-    login = login.strip()
+    login = login.strip().lower()
     now_iso = datetime.utcnow().isoformat()
     now_ts = datetime.utcnow().timestamp()
 
@@ -135,11 +183,20 @@ def authenticate_user(login, password):
         last_attempt_str = limit_dict["last_attempt"]
         try:
             last_attempt_time = datetime.fromisoformat(last_attempt_str).timestamp()
-            # 5 minutes block after 5 failed attempts
-            if attempts >= 5 and (now_ts - last_attempt_time) < 300:
-                remaining = int(300 - (now_ts - last_attempt_time))
+            # Exponential backoff base 5 minutes
+            cooldown_seconds = 300 * (2 ** max(0, attempts - 5))
+            if attempts >= 5 and (now_ts - last_attempt_time) < cooldown_seconds:
+                remaining = int(cooldown_seconds - (now_ts - last_attempt_time))
+                log.warning(f"Auth: Blocked login attempt for {_mask_identifier(login)}. Attempts: {attempts}. Cooldown: {remaining}s")
+                get_audit_repo().log_action(
+                    action=AuditAction.LOGIN_BLOCKED,
+                    target_type="system",
+                    target_id=login,
+                    result="fail",
+                    metadata={"reason": "brute_force_block", "attempts": attempts, "cooldown": remaining}
+                )
                 raise InvalidCredentialsError(f"⚠️ Слишком много попыток входа. Попробуйте через {remaining} секунд.")
-            elif attempts >= 5 and (now_ts - last_attempt_time) >= 300:
+            elif attempts >= 5 and (now_ts - last_attempt_time) >= cooldown_seconds:
                 # Reset if cooled down
                 repo.reset_login_attempts(login)
         except ValueError:
@@ -150,19 +207,41 @@ def authenticate_user(login, password):
 
     if not user:
         _record_failed_attempt(login, now_iso)
+        log.warning(f"Auth: Failed login attempt (user not found) for {_mask_identifier(login)}")
+        get_audit_repo().log_action(AuditAction.LOGIN_FAIL, "system", target_id=login, result="fail", metadata={"reason": "user_not_found"})
         raise InvalidCredentialsError("Неверный логин или пароль.")
     
     # 3. Verify Pass
     if not _verify_password(password, user["password_salt"], user["password_hash"]):
         _record_failed_attempt(login, now_iso)
+        log.warning(f"Auth: Failed login attempt (invalid password) for {_mask_identifier(login)}")
+        get_audit_repo().log_action(AuditAction.LOGIN_FAIL, "system", target_id=login, result="fail", metadata={"reason": "invalid_password"})
         raise InvalidCredentialsError("Неверный логин или пароль.")
         
     # 4. Filter Status
     if user["status"] != "approved":
+         log.warning(f"Auth: Login attempt by unapproved user {_mask_identifier(login)}")
+         get_audit_repo().log_action(AuditAction.LOGIN_FAIL, "system", target_id=login, result="deny", metadata={"reason": "unapproved"})
          raise InvalidCredentialsError("Ваш аккаунт пока не одобрен администратором.")
          
     # 5. Success -> Reset attempts
     repo.delete_login_attempts(login)
+    log.info(f"Auth: Successful login for {_mask_identifier(login)}")
+    ip_addr = None
+    try:
+        ip_addr = st.context.headers.get("x-forwarded-for") or st.context.headers.get("x-real-ip")
+        if ip_addr: ip_addr = ip_addr.split(",")[0].strip()
+    except Exception:
+        pass
+        
+    get_audit_repo().log_action(
+        AuditAction.LOGIN_SUCCESS, "system", 
+        actor_user_id=user["id"], 
+        actor_role=user["role"], 
+        target_id=login, 
+        result="success",
+        ip_address=ip_addr
+    )
 
     return user
 
@@ -180,7 +259,7 @@ def get_user_by_id(user_id):
 
 def create_runtime_session(user_id, user_agent=None):
     now_iso = datetime.utcnow().isoformat()
-    expires_at = datetime.utcnow() + timedelta(days=SESSION_TTL_DAYS)
+    expires_at = datetime.utcnow() + timedelta(hours=SESSION_TTL_HOURS)
     expires_iso = expires_at.isoformat()
     exp_ts = int(expires_at.timestamp())
     token = _sign_payload(f"{user_id}:{exp_ts}")
@@ -202,7 +281,7 @@ def resolve_runtime_session(token, user_agent=None):
         user_id = _unsign_token(token)
         if user_id is None:
             return None
-        expires_iso = (datetime.utcnow() + timedelta(days=SESSION_TTL_DAYS)).isoformat()
+        expires_iso = (datetime.utcnow() + timedelta(hours=SESSION_TTL_HOURS)).isoformat()
         ua_hash = _hash_user_agent(user_agent)
         repo.create_session(token, user_id, expires_iso, now.isoformat(), ua_hash)
         return user_id
@@ -233,12 +312,46 @@ def drop_runtime_session(token):
 
 def update_user_status(user_id, status):
     get_user_repo().update_user_status(user_id, status)
+    
+    try:
+        current_admin = st.session_state.auth_user
+        admin_id = current_admin.id if current_admin else None
+        admin_role = current_admin.role if current_admin else None
+    except Exception:
+        admin_id, admin_role = None, None
+        
+    get_audit_repo().log_action(
+        action=AuditAction.USER_STATUS_CHANGE,
+        target_type="user",
+        target_id=str(user_id),
+        actor_user_id=st.session_state.auth_user.id if st.session_state.get("auth_user") else None,
+        actor_role=st.session_state.auth_user.role if st.session_state.get("auth_user") else None,
+        metadata={"new_status": str(status)}
+    )
+    
     token = get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
     if token:
         sync_users_to_yandex(token)
 
 def update_user_role(user_id, role):
     get_user_repo().update_user_role(user_id, role)
+    
+    try:
+        current_admin = st.session_state.auth_user
+        admin_id = current_admin.id if current_admin else None
+        admin_role = current_admin.role if current_admin else None
+    except Exception:
+        admin_id, admin_role = None, None
+        
+    get_audit_repo().log_action(
+        action=AuditAction.USER_ROLE_CHANGE,
+        target_type="user",
+        target_id=str(user_id),
+        actor_user_id=st.session_state.auth_user.id if st.session_state.get("auth_user") else None,
+        actor_role=st.session_state.auth_user.role if st.session_state.get("auth_user") else None,
+        metadata={"new_role": role}
+    )
+    
     token = get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
     if token:
         sync_users_to_yandex(token)

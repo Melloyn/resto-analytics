@@ -106,14 +106,12 @@ def setup_style():
         }
 
         [data-testid="stSidebar"] {
-            /* Ultra-clear glass sidebar */
-            background: linear-gradient(165deg, rgba(160, 200, 255, 0.05), rgba(100, 160, 255, 0.02)) !important;
+            /* Unified glass sidebar matching main theme */
+            background: linear-gradient(180deg, rgba(8, 16, 29, 0.65) 0%, rgba(10, 20, 34, 0.85) 100%) !important;
             backdrop-filter: blur(24px) saturate(140%);
             -webkit-backdrop-filter: blur(24px) saturate(140%);
-            border-right: 1px solid rgba(255, 255, 255, 0.15) !important;
-            box-shadow: 
-                inset -1px 0 2px rgba(255, 255, 255, 0.2), 
-                15px 0 40px rgba(0, 5, 15, 0.4);
+            border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+            box-shadow: 15px 0 40px rgba(0, 0, 0, 0.45);
         }
 
         [data-testid="stSidebar"] * {
@@ -385,34 +383,39 @@ def setup_style():
             display: none !important; /* Hide default ugly solid line */
         }
         
-        div[data-testid="stTabs"] > div[data-baseweb="tab-list"] button[data-baseweb="tab"] {
+        /* Apply identical glass tab styling to both st.tabs and st.pills for consistency */
+        div[data-testid="stTabs"] > div[data-baseweb="tab-list"] button[data-baseweb="tab"],
+        div[data-testid="stPills"] > div,
+        div[data-testid="stSegmentedControl"] > div {
             /* Clear dark glassy base for inactive */
             background: linear-gradient(180deg, rgba(30, 45, 75, 0.4) 0%, rgba(15, 25, 45, 0.6) 100%) !important;
             border: 1px solid rgba(255, 255, 255, 0.05) !important;
             border-top: 1px solid rgba(255, 255, 255, 0.15) !important;
             border-bottom: 2px solid rgba(0, 0, 0, 0.4) !important;
-            border-radius: 8px !important; /* Retained from the reference image */
-            padding: 10px 26px !important;
+            border-radius: 12px 12px 4px 4px !important; /* Excel tab shape */
+            padding: 8px 22px !important;
             color: rgba(255, 255, 255, 0.5) !important;
             font-weight: 600 !important;
-            font-size: 15px !important;
+            font-size: 14px !important;
             height: auto !important;
             margin: 0 !important;
             box-shadow: 
-                inset 0 1px 1px rgba(255, 255, 255, 0.1),   /* sharp upper inner edge */
-                inset 0 -1px 2px rgba(255, 255, 255, 0.05),  /* soft lower inner edge */
-                0 4px 15px rgba(0, 0, 0, 0.4) !important;   /* standard drop shadow */
-            transition: all 0.35s cubic-bezier(0.25, 1, 0.35, 1) !important;
+                inset 0 1px 1px rgba(255, 255, 255, 0.1),   
+                inset 0 -1px 2px rgba(255, 255, 255, 0.05),  
+                0 4px 15px rgba(0, 0, 0, 0.4) !important;   
+            transition: all 0.30s cubic-bezier(0.25, 1, 0.35, 1) !important;
             backdrop-filter: blur(20px) saturate(120%);
             -webkit-backdrop-filter: blur(20px) saturate(120%);
             overflow: visible !important;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
 
-        div[data-testid="stTabs"] > div[data-baseweb="tab-list"] button[data-baseweb="tab"]:focus {
-            outline: none !important;
-        }
-
-        div[data-testid="stTabs"] > div[data-baseweb="tab-list"] button[data-baseweb="tab"]:hover {
+        /* Hover state */
+        div[data-testid="stTabs"] > div[data-baseweb="tab-list"] button[data-baseweb="tab"]:hover,
+        div[data-testid="stPills"] > div:hover,
+        div[data-testid="stSegmentedControl"] > div:hover {
             color: rgba(255, 255, 255, 0.8) !important;
             background: linear-gradient(180deg, rgba(35, 50, 85, 0.5) 0%, rgba(20, 30, 55, 0.7) 100%) !important;
             border: 1px solid rgba(255, 255, 255, 0.1) !important;
@@ -424,26 +427,44 @@ def setup_style():
                 0 8px 20px rgba(0, 0, 0, 0.5) !important;
         }
         
-        div[data-testid="stTabs"] > div[data-baseweb="tab-list"] button[data-baseweb="tab"][aria-selected="true"] {
-            /* Active glowing glowing inner shadow look */
+        /* Active glowing state */
+        div[data-testid="stTabs"] > div[data-baseweb="tab-list"] button[data-baseweb="tab"][aria-selected="true"],
+        div[data-testid="stPills"] > div[data-selected="true"],
+        div[data-testid="stSegmentedControl"] > div[data-selected="true"],
+        div[data-testid="stPills"] label[data-checked="true"] {
             background: linear-gradient(180deg, rgba(20, 40, 80, 0.6) 0%, rgba(10, 20, 50, 0.4) 100%) !important;
             color: #ffffff !important;
             border: 1px solid rgba(255, 255, 255, 0.1) !important;
             border-top: 1px solid rgba(255, 255, 255, 0.2) !important;
-            border-bottom: 2px solid rgba(130, 200, 255, 0.9) !important; /* Thick glowing base */
+            border-bottom: 2px solid rgba(115, 195, 255, 0.9) !important; /* Thick glowing base */
             box-shadow: 
-                inset 0 1px 1px rgba(255, 255, 255, 0.2),    /* Top edge */
-                inset 0 -5px 15px rgba(100, 180, 255, 0.4),  /* Inner glowing blue from bottom */
-                0 6px 15px rgba(0, 0, 0, 0.5),                 /* Outer dark shadow */
-                0 8px 25px -4px rgba(80, 170, 255, 0.6) !important; /* Intense outer bright glow */
+                inset 0 1px 1px rgba(255, 255, 255, 0.2),    
+                inset 0 -5px 15px rgba(100, 180, 255, 0.35),  
+                0 6px 15px rgba(0, 0, 0, 0.5),                 
+                0 8px 25px -4px rgba(80, 170, 255, 0.5) !important; 
             transform: translateY(-2px);
-            /* Make it feel like colored glass */
             backdrop-filter: blur(25px) saturate(160%);
             -webkit-backdrop-filter: blur(25px) saturate(160%);
         }
         
         div[data-testid="stTabs"] > div[data-baseweb="tab-panel"] {
             outline: none !important;
+        }
+        
+        /* Fix pills container overflow to eliminate horizontal scrollbar on mobile */
+        div[data-testid="stPills"] {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: center;
+            padding: 10px 0 25px 0;
+        }
+        
+        div[data-testid="stPills"] label > span > p {
+             font-weight: 600 !important;
+             font-size: 14.5px !important;
+             margin: 0 !important;
+             padding: 0 !important;
         }
 
         .stSelectbox label, .stRadio label {
