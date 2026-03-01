@@ -459,6 +459,25 @@ def setup_style():
             justify-content: center;
             padding: 10px 0 25px 0;
         }
+
+        /* 3D Glass Glow effect for icons inside tabs/pills/radio */
+        div[data-testid="stPills"] img,
+        div[data-testid="stTabs"] img,
+        div[data-testid="stRadio"] img {
+            filter: drop-shadow(0 0 5px #73c3ff);
+            transition: transform 0.2s cubic-bezier(0.25, 1, 0.35, 1);
+            margin-right: 6px; /* spacing between icon and text */
+            vertical-align: middle;
+            width: 22px; /* ensure uniform sizing */
+            height: 22px;
+        }
+
+        div[data-testid="stPills"] > div:hover img,
+        div[data-testid="stTabs"] button[data-baseweb="tab"]:hover img,
+        div[data-testid="stRadio"] label:hover img {
+            transform: scale(1.2);
+            filter: drop-shadow(0 0 8px #99d5ff); /* intense glow on hover */
+        }
         
         div[data-testid="stPills"] label > span > p {
              font-weight: 600 !important;

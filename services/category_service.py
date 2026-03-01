@@ -12,9 +12,9 @@ MAPPING_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 YANDEX_MAPPING_PATH = "RestoAnalytic/categories.json"
 
 DEFAULT_CATEGORIES = [
-    "🍔 Еда (Кухня)", "🍹 Коктейли", "☕ Кофе", "🍵 Чай", "🍺 Пиво Розлив", "💧 Водка",
+    "🍔 Еда (Кухня)", "![Cocktail](https://cdn-icons-png.flaticon.com/128/10427/10427184.png) Коктейли", "![Coffee](https://cdn-icons-png.flaticon.com/128/9336/9336100.png) Кофе", "🍵 Чай", "![Beer](https://cdn-icons-png.flaticon.com/128/9643/9643446.png) Пиво Розлив", "💧 Водка",
     "🍷 Вино", "🥤 Стекло/Банка Б/А", "🚰 Розлив Б/А", "🍓 Милк/Фреш/Смузи", 
-    "🍏 Сидр ШТ", "🍾 Пиво ШТ", "🥃 Виски", "💧 Водка", "🏴‍☠️ Ром", 
+    "🍏 Сидр ШТ", "🍾 Пиво ШТ", "🥃 Виски", "🏴‍☠️ Ром", 
     "🌵 Текила", "🌲 Джин", "🍇 Коньяк/Бренди", "🍒 Ликер/Настойка", "🍬 Доп. ингредиенты",
     "🧉 Коктейль Б/А", "📦 Прочее", "⛔ Исключить из отчетов"
 ]

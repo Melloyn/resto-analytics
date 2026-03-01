@@ -18,21 +18,21 @@ class ReportRoute(str, Enum):
 
 
 REPORT_TAB_LABELS: Tuple[str, ...] = (
-    "Выручка (Меню)",
-    "Инфляция С/С",
-    "ABC-анализ",
-    "Симулятор цен",
-    "Дни недели",
-    "Закупки",
+    "![Rev](https://cdn-icons-png.flaticon.com/128/9336/9336043.png) Выручка",
+    "![Inf](https://cdn-icons-png.flaticon.com/128/9355/9355642.png) Инфляция С/С",
+    "![ABC](https://cdn-icons-png.flaticon.com/128/10427/10427181.png) ABC-анализ",
+    "![Sim](https://cdn-icons-png.flaticon.com/128/10397/10397034.png) Симулятор",
+    "![Days](https://cdn-icons-png.flaticon.com/128/10691/10691802.png) Дни недели",
+    "![Proc](https://cdn-icons-png.flaticon.com/128/10427/10427216.png) Закупки",
 )
 
 _ROUTE_BY_LABEL = {
-    "Выручка (Меню)": ReportRoute.MENU,
-    "Инфляция С/С": ReportRoute.INFLATION,
-    "ABC-анализ": ReportRoute.ABC,
-    "Симулятор цен": ReportRoute.SIMULATOR,
-    "Дни недели": ReportRoute.WEEKDAYS,
-    "Закупки": ReportRoute.PROCUREMENT,
+    REPORT_TAB_LABELS[0]: ReportRoute.MENU,
+    REPORT_TAB_LABELS[1]: ReportRoute.INFLATION,
+    REPORT_TAB_LABELS[2]: ReportRoute.ABC,
+    REPORT_TAB_LABELS[3]: ReportRoute.SIMULATOR,
+    REPORT_TAB_LABELS[4]: ReportRoute.WEEKDAYS,
+    REPORT_TAB_LABELS[5]: ReportRoute.PROCUREMENT,
 }
 
 
