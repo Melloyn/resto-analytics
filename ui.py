@@ -466,23 +466,31 @@ def setup_style():
         div[data-testid="stRadio"] img {
             filter: drop-shadow(0 0 5px #73c3ff);
             transition: transform 0.2s cubic-bezier(0.25, 1, 0.35, 1);
-            margin-right: 6px; /* spacing between icon and text */
-            vertical-align: middle;
-            width: 22px; /* ensure uniform sizing */
-            height: 22px;
+            margin: 0 8px 0 0 !important;
+            padding: 0 !important;
+            vertical-align: middle !important;
+            width: 28px !important;
+            height: 28px !important;
+            display: block !important;
         }
 
         div[data-testid="stPills"] > div:hover img,
         div[data-testid="stTabs"] button[data-baseweb="tab"]:hover img,
         div[data-testid="stRadio"] label:hover img {
-            transform: scale(1.2);
-            filter: drop-shadow(0 0 8px #99d5ff); /* intense glow on hover */
+            transform: scale(1.15) translateY(-2px);
+            filter: drop-shadow(0 4px 12px rgba(115,195,255,0.8));
         }
-        
-        div[data-testid="stPills"] label > span > p {
+
+        /* Flexbox alignment for icon and text to stay strictly on the same line */
+        div[data-testid="stPills"] label > span > p,
+        div[data-testid="stTabs"] button[data-baseweb="tab"] p,
+        div[data-testid="stRadio"] label > span > p {
+             display: flex !important;
+             align-items: center !important;
+             justify-content: center !important;
+             margin: 0 !important;
              font-weight: 600 !important;
              font-size: 14.5px !important;
-             margin: 0 !important;
              padding: 0 !important;
         }
 
