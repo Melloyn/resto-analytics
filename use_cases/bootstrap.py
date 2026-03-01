@@ -6,7 +6,6 @@ from typing import Literal, Tuple
 import os
 
 import auth
-from services import category_service
 from utils import session_manager
 
 StartupStatus = Literal["CONTINUE", "STOP"]
@@ -46,6 +45,7 @@ def run_startup() -> StartupResult:
     if not session_manager.st.session_state.categories_synced:
         yd_token = auth.get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
         if yd_token:
+            from services import category_service
             category_service.sync_from_yandex(yd_token)
             executed_steps.append("sync_categories_from_yandex")
         session_manager.st.session_state.categories_synced = True
