@@ -1,5 +1,11 @@
 import pytest
+from unittest.mock import patch
 import auth
+
+@pytest.fixture(autouse=True)
+def mock_sync_yandex():
+    with patch("auth.sync_users_to_yandex") as mock_sync:
+        yield mock_sync
 
 @pytest.fixture
 def test_db(tmp_path):

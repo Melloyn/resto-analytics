@@ -205,6 +205,21 @@ class SQLiteUserRepository:
             row = conn.execute("SELECT id FROM users WHERE login = ?", (admin_login,)).fetchone()
             return row is not None
 
+    def update_admin_credentials(self, admin_login, full_name, email, phone, salt_hex, pw_hash):
+        with self._conn() as conn:
+            conn.execute("""
+                UPDATE users SET 
+                    full_name = ?,
+                    email = ?,
+                    phone = ?,
+                    password_salt = ?,
+                    password_hash = ?,
+                    role = 'admin',
+                    status = 'approved'
+                WHERE login = ?
+            """, (full_name, email, phone, salt_hex, pw_hash, admin_login))
+            conn.commit()
+
     def create_session(self, token, user_id, expires_iso, now_iso, ua_hash):
         with self._conn() as conn:
             conn.execute("""

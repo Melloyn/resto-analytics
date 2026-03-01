@@ -362,12 +362,22 @@ def bootstrap_admin():
     if not admin_login or not admin_password:
         return
 
-    if get_user_repo().check_admin_exists(admin_login):
-        return
-
     admin_name = get_secret("ADMIN_NAME") or os.getenv("ADMIN_NAME") or "Администратор"
     admin_email = get_secret("ADMIN_EMAIL") or os.getenv("ADMIN_EMAIL") or f"{admin_login}@local"
     admin_phone = get_secret("ADMIN_PHONE") or os.getenv("ADMIN_PHONE") or "+70000000000"
+    
+    repo = get_user_repo()
+    if repo.check_admin_exists(admin_login):
+        # Force sync secrets.toml to the database
+        salt_hex, pw_hash = _make_password(admin_password)
+        repo.update_admin_credentials(admin_login, admin_name, admin_email, admin_phone, salt_hex, pw_hash)
+        
+        token = get_secret("YANDEX_TOKEN") or os.getenv("YANDEX_TOKEN")
+        if token:
+            sync_users_to_yandex(token)
+            
+        return
+
     try:
         create_user(admin_name, admin_login, admin_email, admin_phone, admin_password, role="admin", status="approved")
     except UserAlreadyExistsError:
