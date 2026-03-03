@@ -3,13 +3,20 @@ import plotly.express as px
 import ui
 from services import analytics_service
 
-def render_abc(df_current):
+@st.cache_data(show_spinner=False)
+def _cached_abc_prepare(_df_current, selection_signature, data_version):
+    return analytics_service.compute_abc_data(_df_current)
+
+def render_abc(df_current, selection_signature=""):
     placeholder = st.empty()
     with placeholder.container():
         ui.render_skeleton_chart()
         import time; time.sleep(0.01)
 
-    abc, aq, am = analytics_service.compute_abc_data(df_current)
+    data_version = st.session_state.get('data_version', 1)
+    
+    if True:
+        abc, aq, am = _cached_abc_prepare(df_current, selection_signature, data_version)
     
     placeholder.empty()
     if abc.empty:

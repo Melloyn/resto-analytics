@@ -21,65 +21,88 @@ def render_dynamics(df_full, df_current):
             fig = px.bar(stats, x='Себестоимость', y='Поставщик', orientation='h')
             st.plotly_chart(ui.update_chart_layout(fig), use_container_width=True)
 
-def render_menu(df_current, df_prev, current_label="", prev_label=""):
+@st.cache_data(show_spinner=False)
+def _cached_build_pie_chart(_df_current, target_cat, selection_signature, data_version):
+    cats, _ = analytics_service.compute_menu_tab_data(_df_current, target_cat)
+    cats_sorted = cats.sort_values('Выручка с НДС', ascending=False).copy()
+    total_rev = cats_sorted['Выручка с НДС'].sum()
+    if total_rev > 0:
+        cats_sorted['share'] = cats_sorted['Выручка с НДС'] / total_rev
+        small_mask = cats_sorted['share'] < 0.05
+        if small_mask.any():
+            other_sum = cats_sorted.loc[small_mask, 'Выручка с НДС'].sum()
+            cats_sorted = cats_sorted.loc[~small_mask, [target_cat, 'Выручка с НДС']]
+            cats_sorted = pd.concat(
+                [cats_sorted, pd.DataFrame({target_cat: ["🔹 Остальное (мелкое)"], "Выручка с НДС": [other_sum]})],
+                ignore_index=True
+            )
+            
+    fig = px.pie(
+        cats_sorted,
+        values='Выручка с НДС',
+        names=target_cat,
+        hole=0.5,
+        title="Структура выручки"
+    )
+    fig = ui.update_chart_layout(fig)
+    fig.update_traces(
+        textposition='auto', 
+        textinfo='percent',
+        pull=[0.05] + [0] * (len(cats_sorted)-1)
+    )
+    fig.update_layout(
+        legend=dict(
+            orientation="v", 
+            yanchor="top", 
+            y=1, 
+            xanchor="left", 
+            x=1.05
+        ),
+        title=dict(x=0.05, y=0.98, xanchor="left", yanchor="top"),
+        margin=dict(l=20, r=120, t=60, b=20),
+        showlegend=True
+    )
+    return fig
+
+@st.cache_data(show_spinner=False)
+def _cached_prep_aggrid_fc(_df_current, min_rev, min_qty, top_n, selection_signature, data_version):
+    period_sorted = _df_current.sort_values('Дата_Отчета')
+    cost_start = period_sorted.groupby('Блюдо')['Unit_Cost'].first()
+    cost_end = period_sorted.groupby('Блюдо')['Unit_Cost'].last()
+    agg = _df_current.groupby('Блюдо').agg({
+        'Выручка с НДС': 'sum',
+        'Себестоимость': 'sum',
+        'Количество': 'sum'
+    })
+    agg['Факт фудкост %'] = (agg['Себестоимость'] / agg['Выручка с НДС'] * 100).fillna(0)
+    agg = agg[(agg['Выручка с НДС'] >= min_rev) & (agg['Количество'] >= min_qty)]
+    df_fc = pd.DataFrame({
+        'Блюдо': agg.index,
+        'С/С начало периода': cost_start,
+        'С/С конец периода': cost_end,
+        'Факт фудкост %': agg['Факт фудкост %'],
+        'Выручка с НДС': agg['Выручка с НДС'],
+        'Кол-во продано': agg['Количество']
+    }).reset_index(drop=True)
+    df_fc = df_fc.sort_values('Выручка с НДС', ascending=False).head(top_n)
+    return df_fc
+
+def render_menu(df_current, df_prev, current_label="", prev_label="", selection_signature=""):
     placeholder = st.empty()
     with placeholder.container():
         ui.render_skeleton_chart()
         import time; time.sleep(0.01)
 
+    data_version = st.session_state.get('data_version', 1)
+    
     view_mode = st.radio("Вид:", ["Макро", "Микро"], horizontal=True, label_visibility="collapsed")
     target_cat = 'Макро_Категория' if view_mode == "Макро" else 'Категория'
     
-    cats, items = analytics_service.compute_menu_tab_data(df_current, target_cat)
-    
-    placeholder.empty()
+    if True:
+        fig = _cached_build_pie_chart(df_current, target_cat, selection_signature, data_version)
+        
     c1, c2 = st.columns([1, 1.5])
     with c1:
-        # Clean donut: group small categories into "Прочее" and simplify legend
-        cats_sorted = cats.sort_values('Выручка с НДС', ascending=False).copy()
-        total_rev = cats_sorted['Выручка с НДС'].sum()
-        if total_rev > 0:
-            cats_sorted['share'] = cats_sorted['Выручка с НДС'] / total_rev
-            # Increased threshold to avoid clutter
-            small_mask = cats_sorted['share'] < 0.05
-            if small_mask.any():
-                other_sum = cats_sorted.loc[small_mask, 'Выручка с НДС'].sum()
-                cats_sorted = cats_sorted.loc[~small_mask, [target_cat, 'Выручка с НДС']]
-                cats_sorted = pd.concat(
-                    [cats_sorted, pd.DataFrame({target_cat: ["🔹 Остальное (мелкое)"], "Выручка с НДС": [other_sum]})],
-                    ignore_index=True
-                )
-        
-        fig = px.pie(
-            cats_sorted,
-            values='Выручка с НДС',
-            names=target_cat,
-            hole=0.5,
-            title="Структура выручки"
-        )
-        # Apply global theme first
-        fig = ui.update_chart_layout(fig)
-        
-        # Then override for specific pie chart needs
-        fig.update_traces(
-            textposition='auto', 
-            textinfo='percent',
-            pull=[0.05] + [0] * (len(cats_sorted)-1)
-        )
-        
-        # Legend on the right (vertical) looks cleaner for many items
-        fig.update_layout(
-            legend=dict(
-                orientation="v", 
-                yanchor="top", 
-                y=1, 
-                xanchor="left", 
-                x=1.05
-            ),
-            title=dict(x=0.05, y=0.98, xanchor="left", yanchor="top"),
-            margin=dict(l=20, r=120, t=60, b=20),
-            showlegend=True
-        )
         st.plotly_chart(fig, use_container_width=True)
     with c2:
         if not df_current.empty:
@@ -91,26 +114,11 @@ def render_menu(df_current, df_prev, current_label="", prev_label=""):
                 with c_f2:
                     top_n = st.slider("Показать топ N по выручке", 10, 300, 150)
 
-            period_sorted = df_current.sort_values('Дата_Отчета')
-            cost_start = period_sorted.groupby('Блюдо')['Unit_Cost'].first()
-            cost_end = period_sorted.groupby('Блюдо')['Unit_Cost'].last()
-            agg = df_current.groupby('Блюдо').agg({
-                'Выручка с НДС': 'sum',
-                'Себестоимость': 'sum',
-                'Количество': 'sum'
-            })
-            agg['Факт фудкост %'] = (agg['Себестоимость'] / agg['Выручка с НДС'] * 100).fillna(0)
-            agg = agg[(agg['Выручка с НДС'] >= min_rev) & (agg['Количество'] >= min_qty)]
-            df_fc = pd.DataFrame({
-                'Блюдо': agg.index,
-                'С/С начало периода': cost_start,
-                'С/С конец периода': cost_end,
-                'Факт фудкост %': agg['Факт фудкост %'],
-                'Выручка с НДС': agg['Выручка с НДС'],
-                'Кол-во продано': agg['Количество']
-            }).reset_index(drop=True)
-            df_fc = df_fc.sort_values('Выручка с НДС', ascending=False).head(top_n)
-            ui.render_aggrid(
+            if True:
+                df_fc = _cached_prep_aggrid_fc(df_current, min_rev, min_qty, top_n, selection_signature, data_version)
+                
+            if True:
+                ui.render_aggrid(
                 df_fc,
                 height=500,
                 pagination=True,
@@ -125,7 +133,9 @@ def render_menu(df_current, df_prev, current_label="", prev_label=""):
         else:
             st.info("Нет данных для расчета фудкоста.")
 
+    # --- PREV PERIOD COMPARE ---
     if not df_prev.empty:
+        cats, _ = analytics_service.compute_menu_tab_data(df_current, target_cat)
         cats_prev, _ = analytics_service.compute_menu_tab_data(df_prev, target_cat)
         cur_cmp = cats.rename(columns={'Выручка с НДС': 'Текущий'})
         prev_cmp = cats_prev.rename(columns={'Выручка с НДС': 'Сравнение'})

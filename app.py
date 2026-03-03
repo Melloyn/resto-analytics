@@ -20,6 +20,9 @@ from utils import session_manager
 from use_cases import auth_flow, bootstrap, report_flow
 from views import admin_view, login_view
 from datetime import datetime
+import time
+
+_APP_START_TIME = time.perf_counter()
 
 # --- НАСТРОЙКИ СТРАНИЦЫ ---
 st.set_page_config(page_title="RestoAnalytics: Место", layout="wide", initial_sidebar_state="expanded")
@@ -88,7 +91,6 @@ startup_result = bootstrap.run_startup()
 if startup_result.status == "STOP":
     st.stop()
 
-# --- ВХОД / АВТОРИЗАЦИЯ ---
 # 1. Orchestration: init session -> restore -> validate
 auth_result = auth_flow.ensure_authenticated_session()
 
@@ -208,12 +210,14 @@ with st.sidebar:
                                 "dropped_stats",
                                 {"count": 0, "cost": 0.0, "items": []},
                             )
+                            st.session_state.data_version = st.session_state.get('data_version', 1) + 1
                             st.session_state.df_full = None
                             st.rerun()
                         else:
                             st.error(msg)
         elif source_type == "📂 Локальная папка":
             if st.button("🔄 Загрузить из кэша"):
+                 st.session_state.data_version = st.session_state.get('data_version', 1) + 1
                  st.session_state.df_full = None
                  st.rerun()
 
@@ -234,11 +238,12 @@ with st.sidebar:
                      st.warning("Кэш устарел. Нажмите «Скачать и обновить».")
                  else:
                      with st.spinner("Загрузка и подготовка данных..."):
-                         df = pd.read_parquet(data_loader.CACHE_FILE)
-                         # Always re-apply categories from current mapping,
-                         # so category edits survive app/server restarts.
-                         df = category_service.apply_categories(df)
-                         st.session_state.df_full = df
+                         if True:
+                             df = pd.read_parquet(data_loader.CACHE_FILE)
+                             # Always re-apply categories from current mapping,
+                             # so category edits survive app/server restarts.
+                             df = category_service.apply_categories(df)
+                             st.session_state.df_full = df
              except Exception as e:
                  st.error(f"Ошибка чтения кэша: {e}")
     
@@ -270,72 +275,86 @@ with st.sidebar:
             
             report_context = report_flow.ReportContext()
             
-            if period_mode == "📌 Последний загруженный день":
-                report_context = _cached_build_report_context(
-                    df_full,
-                    id(df_full),
-                    period_mode,
-                    None,
-                    "",
-                    None,
-                    "",
-                    None
-                )
-
-            elif period_mode == "📅 Месяц (Сравнение)":
-                 df_full['YearMonth'] = df_full['Дата_Отчета'].dt.to_period('M')
-                 available_ym = sorted(df_full['YearMonth'].unique(), reverse=True)
-                 
-                 if not available_ym:
-                     st.warning("Нет данных")
-                 else:
-                     selected_ym = st.selectbox("Месяц:", available_ym)
-                     scope_mode = st.radio("Охват:", ["Весь месяц", "По конкретный день"], horizontal=True, label_visibility="collapsed")
-                     
-                     start_cur = selected_ym.start_time
-                     end_cur = selected_ym.end_time
-                     
-                     if scope_mode == "По конкретный день":
-                         max_d = (selected_ym.to_timestamp(how='end')).day
-                         selected_day = st.slider("День:", 1, max_d, min(datetime.now().day, max_d))
-                     else:
-                         selected_day = None
-                     
-                     compare_mode = st.selectbox("Сравнить с:", ["Предыдущий месяц", "Год назад", "Нет"], index=1)
-                     report_context = _cached_build_report_context(
+            if True:
+                if period_mode == "📌 Последний загруженный день":
+                    report_context = _cached_build_report_context(
                         df_full,
                         id(df_full),
                         period_mode,
-                        selected_ym,
-                        scope_mode,
-                        selected_day,
-                        compare_mode,
+                        None,
+                        "",
+                        None,
+                        "",
                         None
                     )
 
-            else: # "Диапазон"
-                d_range = st.date_input("Диапазон:", value=(min_date, max_date), min_value=min_date, max_value=max_date)
-                report_context = _cached_build_report_context(
-                    df_full,
-                    id(df_full),
-                    period_mode,
-                    None,
-                    "",
-                    None,
-                    "",
-                    d_range if isinstance(d_range, tuple) and len(d_range) == 2 else None,
-                )
+                elif period_mode == "📅 Месяц (Сравнение)":
+                     df_full['YearMonth'] = df_full['Дата_Отчета'].dt.to_period('M')
+                     available_ym = sorted(df_full['YearMonth'].unique(), reverse=True)
+                     
+                     if not available_ym:
+                         st.warning("Нет данных")
+                     else:
+                         selected_ym = st.selectbox("Месяц:", available_ym)
+                         scope_mode = st.radio("Охват:", ["Весь месяц", "По конкретный день"], horizontal=True, label_visibility="collapsed")
+                         
+                         start_cur = selected_ym.start_time
+                         end_cur = selected_ym.end_time
+                         
+                         if scope_mode == "По конкретный день":
+                             max_d = (selected_ym.to_timestamp(how='end')).day
+                             selected_day = st.slider("День:", 1, max_d, min(datetime.now().day, max_d))
+                         else:
+                             selected_day = None
+                         
+                         compare_mode = st.selectbox("Сравнить с:", ["Предыдущий месяц", "Год назад", "Нет"], index=1)
+                         report_context = _cached_build_report_context(
+                            df_full,
+                            id(df_full),
+                            period_mode,
+                            selected_ym,
+                            scope_mode,
+                            selected_day,
+                            compare_mode,
+                            None
+                        )
 
-            df_current = report_context.df_current
-            df_prev = report_context.df_prev
-            selected_period = report_context.selected_period
-            current_label = report_context.current_label
-            prev_label = report_context.prev_label
+                else: # "Диапазон"
+                    d_range = st.date_input("Диапазон:", value=(min_date, max_date), min_value=min_date, max_value=max_date)
+                    report_context = _cached_build_report_context(
+                        df_full,
+                        id(df_full),
+                        period_mode,
+                        None,
+                        "",
+                        None,
+                        "",
+                        d_range if isinstance(d_range, tuple) and len(d_range) == 2 else None,
+                    )
+
+                df_current = report_context.df_current
+                df_prev = report_context.df_prev
+                selected_period = report_context.selected_period
+                current_label = report_context.current_label
+                prev_label = report_context.prev_label
         
         # --- RENDER EXPORT SIDEBAR ---
         if selected_period is not None:
             export_view.render_sidebar_export(df_current, df_full, tg_token, tg_chat, pd.to_datetime(selected_period.end))
 
+        # --- BUILD CACHE KEY SIGNATURE ---
+        from utils.signature import build_selection_signature
+        
+        selection_signature = build_selection_signature(
+            venue=selected_venue if 'selected_venue' in locals() else "Все",
+            period_mode=period_mode if 'period_mode' in locals() else "Произвольный",
+            start_date=selected_period.start if 'selected_period' in locals() and selected_period else None,
+            end_date=selected_period.end if 'selected_period' in locals() and selected_period else None,
+            compare_mode=compare_mode if 'compare_mode' in locals() else "None"
+        )
+        if os.environ.get("DEBUG_TIMINGS") == "1":
+            print(f"[DEBUG] prev_mode/venue cached signature: {selection_signature}")
+        
         st.divider()
         
         # Sentry telemetry tracking
@@ -362,7 +381,8 @@ if not df_current.empty:
     cur_fc = (cur_cost / cur_rev * 100) if cur_rev else 0
     
     with st.expander("💡 Smart Insights", expanded=True):
-        insights = _cached_calculate_insights(df_current, df_prev, id(df_current), cur_rev, prev_rev, cur_fc)
+        if True:
+            insights = _cached_calculate_insights(df_current, df_prev, id(df_current), cur_rev, prev_rev, cur_fc)
         for i in insights:
             if i.level == 'error': st.error(i.message)
             elif i.level == 'warning': st.warning(i.message)
@@ -371,51 +391,55 @@ if not df_current.empty:
     # --- MAIN VIEW ---
     st.divider()
     
-    # --- CENTRAL NAVIGATION (PILLS AS TABS) ---
-    if 'nav_tab' not in st.session_state:
-        st.session_state.nav_tab = list(report_flow.REPORT_TAB_LABELS)[0]
-
-    if os.getenv("DEBUG_NAV_TRACE", "0") == "1":
-        st.write(f"🔍 DEBUG_NAV_TRACE: Rerunning app.py. st.session_state.nav_tab = {st.session_state.nav_tab}")
-
-    # Render Pills. The key="nav_tab" ensures st.session_state is the SSOT.
-    st.pills(
-        "Навигация",
-        options=list(report_flow.REPORT_TAB_LABELS),
-        selection_mode="single",
-        default=st.session_state.nav_tab,
-        key="nav_tab",
-        label_visibility="collapsed"
-    )
-    
-    # Prevent rendering if somehow unselected (user clicked the active pill to deselect)
-    if not st.session_state.nav_tab:
-        st.session_state.nav_tab = list(report_flow.REPORT_TAB_LABELS)[0]
-
-    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-    
-    route = report_flow.select_report_route(st.session_state.nav_tab)
-    
+    # --- CENTRAL NAVIGATION (PILLS AS TABS) (ISOLATED FRAGMENT) ---
     @st.fragment
-    def _render_route_lazy(selected_route, df_curr, df_p, cur_l, prev_l, df_f, sel_p):
-        if selected_route == report_flow.ReportRoute.MENU:
-            menu_view.render_menu(df_curr, df_p, cur_l, prev_l)
-            with st.expander("🔬 Расширенные разделы", expanded=False):
-                adv_tab = st.radio("Дополнительно", ["📉 Динамика"], horizontal=True, label_visibility="collapsed")
-                if adv_tab == "📉 Динамика":
-                    menu_view.render_dynamics(df_f, df_curr)
-        elif selected_route == report_flow.ReportRoute.INFLATION and sel_p:
-            inflation_view.render_inflation(df_f, df_curr, sel_p.end, sel_p.inflation_start)
-        elif selected_route == report_flow.ReportRoute.ABC:
-            abc_view.render_abc(df_curr)
-        elif selected_route == report_flow.ReportRoute.SIMULATOR:
-            simulator_view.render_simulator(df_curr, df_f)
-        elif selected_route == report_flow.ReportRoute.WEEKDAYS:
-            weekday_view.render_weekdays(df_curr, df_p, cur_l, prev_l)
-        elif selected_route == report_flow.ReportRoute.PROCUREMENT and sel_p:
-            procurement_view.render_procurement_v2(df_curr, df_f, sel_p.days)
+    def _render_navigation_and_route(_df_curr, _df_p, _cur_l, _prev_l, _df_f, _sel_p, _sig):
+        if 'nav_tab' not in st.session_state:
+            st.session_state.nav_tab = list(report_flow.REPORT_TAB_LABELS)[0]
 
-    _render_route_lazy(route, df_current, df_prev, current_label, prev_label, df_full, selected_period)
+        if os.getenv("DEBUG_NAV_TRACE", "0") == "1":
+            st.write(f"🔍 DEBUG_NAV_TRACE: Fragment rerunning. st.session_state.nav_tab = {st.session_state.nav_tab}")
+
+        # Render Pills. The key="nav_tab" ensures st.session_state is the SSOT.
+        st.pills(
+            "Навигация",
+            options=list(report_flow.REPORT_TAB_LABELS),
+            selection_mode="single",
+            default=st.session_state.nav_tab,
+            key="nav_tab",
+            label_visibility="collapsed"
+        )
+        
+        # Prevent rendering if somehow unselected (user clicked the active pill to deselect)
+        if not st.session_state.nav_tab:
+            st.session_state.nav_tab = list(report_flow.REPORT_TAB_LABELS)[0]
+
+        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+        
+        route = report_flow.select_report_route(st.session_state.nav_tab)
+        
+        if True:
+            if route == report_flow.ReportRoute.MENU:
+                menu_view.render_menu(_df_curr, _df_p, _cur_l, _prev_l, _sig)
+                with st.expander("🔬 Расширенные разделы", expanded=False):
+                    adv_tab = st.radio("Дополнительно", ["📉 Динамика"], horizontal=True, label_visibility="collapsed")
+                    if adv_tab == "📉 Динамика":
+                        menu_view.render_dynamics(_df_f, _df_curr)
+            elif route == report_flow.ReportRoute.INFLATION and _sel_p:
+                inflation_view.render_inflation(_df_f, _df_curr, _sel_p.end, _sel_p.inflation_start, _sig)
+            elif route == report_flow.ReportRoute.ABC:
+                abc_view.render_abc(_df_curr, _sig)
+            elif route == report_flow.ReportRoute.SIMULATOR:
+                simulator_view.render_simulator(_df_curr, _df_f)
+            elif route == report_flow.ReportRoute.WEEKDAYS:
+                weekday_view.render_weekdays(_df_curr, _df_p, _cur_l, _prev_l)
+            elif route == report_flow.ReportRoute.PROCUREMENT and _sel_p:
+                procurement_view.render_procurement_v2(_df_curr, _df_f, _sel_p.days)
+                
+    # Execute the fragment
+    _render_navigation_and_route(df_current, df_prev, current_label, prev_label, df_full, selected_period, selection_signature)
+
+
 
 else:
     from streamlit_lottie import st_lottie
