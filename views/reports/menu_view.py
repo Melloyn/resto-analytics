@@ -3,6 +3,20 @@ import plotly.express as px
 import pandas as pd
 import ui
 from services import analytics_service
+import os
+import time
+from contextlib import contextmanager
+
+@contextmanager
+def measure(name):
+    if os.getenv("DEBUG_TIMINGS") == "1":
+        start = time.perf_counter()
+        yield
+        duration = (time.perf_counter() - start) * 1000
+        st.write(f"⏱ {name}: {duration:.2f} ms")
+        print(f"[TIMING] {name}: {duration:.2f} ms")
+    else:
+        yield
 
 def render_dynamics(df_full, df_current):
     c1, c2 = st.columns([2, 1])
@@ -88,17 +102,18 @@ def _cached_prep_aggrid_fc(_df_current, min_rev, min_qty, top_n, selection_signa
     return df_fc
 
 def render_menu(df_current, df_prev, current_label="", prev_label="", selection_signature=""):
-    placeholder = st.empty()
-    with placeholder.container():
-        ui.render_skeleton_chart()
-        import time; time.sleep(0.01)
+    with measure("start render_menu (incl skeleton)"):
+        placeholder = st.empty()
+        with placeholder.container():
+            ui.render_skeleton_chart()
+            import time; time.sleep(0.01)
 
     data_version = st.session_state.get('data_version', 1)
     
     view_mode = st.radio("Вид:", ["Макро", "Микро"], horizontal=True, label_visibility="collapsed")
     target_cat = 'Макро_Категория' if view_mode == "Макро" else 'Категория'
     
-    if True:
+    with measure("after pie build"):
         fig = _cached_build_pie_chart(df_current, target_cat, selection_signature, data_version)
         
     c1, c2 = st.columns([1, 1.5])
@@ -106,18 +121,19 @@ def render_menu(df_current, df_prev, current_label="", prev_label="", selection_
         st.plotly_chart(fig, use_container_width=True)
     with c2:
         if not df_current.empty:
-            with st.expander("🔍 Фильтр таблицы фудкоста", expanded=False):
-                c_f1, c_f2 = st.columns(2)
-                with c_f1:
-                    min_rev = st.number_input("Мин. выручка (₽)", min_value=0, value=0, step=1000)
-                    min_qty = st.number_input("Мин. кол-во", min_value=0, value=0, step=10)
-                with c_f2:
-                    top_n = st.slider("Показать топ N по выручке", 10, 300, 150)
+            with measure("after top container (expander)"):
+                with st.expander("🔍 Фильтр таблицы фудкоста", expanded=False):
+                    c_f1, c_f2 = st.columns(2)
+                    with c_f1:
+                        min_rev = st.number_input("Мин. выручка (₽)", min_value=0, value=0, step=1000)
+                        min_qty = st.number_input("Мин. кол-во", min_value=0, value=0, step=10)
+                    with c_f2:
+                        top_n = st.slider("Показать топ N по выручке", 10, 300, 150)
 
-            if True:
+            with measure("after data prep"):
                 df_fc = _cached_prep_aggrid_fc(df_current, min_rev, min_qty, top_n, selection_signature, data_version)
                 
-            if True:
+            with measure("after aggrid"):
                 ui.render_aggrid(
                 df_fc,
                 height=500,

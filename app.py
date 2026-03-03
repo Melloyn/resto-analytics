@@ -392,40 +392,35 @@ if not df_current.empty:
     st.divider()
     
     # --- CENTRAL NAVIGATION (PILLS AS TABS) (ISOLATED FRAGMENT) ---
+    if 'nav_tab' not in st.session_state:
+        st.session_state["nav_tab"] = list(report_flow.REPORT_TAB_LABELS)[0]
+
     @st.fragment
     def _render_navigation_and_route(_df_curr, _df_p, _cur_l, _prev_l, _df_f, _sel_p, _sig):
-        if 'nav_tab' not in st.session_state:
-            st.session_state.nav_tab = list(report_flow.REPORT_TAB_LABELS)[0]
 
         if os.getenv("DEBUG_NAV_TRACE", "0") == "1":
-            st.write(f"🔍 DEBUG_NAV_TRACE: Fragment rerunning. st.session_state.nav_tab = {st.session_state.nav_tab}")
+            st.write(f"🔍 DEBUG_NAV_TRACE: Fragment rerunning. st.session_state.nav_tab = {st.session_state.get('nav_tab')}")
 
         # Render Pills. The key="nav_tab" ensures st.session_state is the SSOT.
         st.pills(
             "Навигация",
             options=list(report_flow.REPORT_TAB_LABELS),
             selection_mode="single",
-            default=st.session_state.nav_tab,
+            default=st.session_state["nav_tab"],
             key="nav_tab",
             label_visibility="collapsed"
         )
         
-        # Prevent rendering if somehow unselected (user clicked the active pill to deselect)
-        if not st.session_state.nav_tab:
-            st.session_state.nav_tab = list(report_flow.REPORT_TAB_LABELS)[0]
+        # Safe read without mutating the bound widget key
+        active_tab = st.session_state.get("nav_tab") or list(report_flow.REPORT_TAB_LABELS)[0]
 
         st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
         
-        route = report_flow.select_report_route(st.session_state.nav_tab)
+        route = report_flow.select_report_route(active_tab)
         
         if True:
             if route == report_flow.ReportRoute.MENU:
-                try:
-                    menu_view.render_menu(_df_curr, _df_p, _cur_l, _prev_l, _sig)
-                except Exception as e:
-                    st.error(f"DEBUG EXCEPTION: {type(e).__name__}: {e}")
-                    import traceback
-                    st.code(traceback.format_exc())
+                menu_view.render_menu(_df_curr, _df_p, _cur_l, _prev_l, _sig)
                 
                 with st.expander("🔬 Расширенные разделы", expanded=False):
                     adv_tab = st.radio("Дополнительно", ["📉 Динамика"], horizontal=True, label_visibility="collapsed")
