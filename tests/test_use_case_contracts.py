@@ -15,7 +15,7 @@ def test_auth_flow_contract(_, __, ___) -> None:
     assert result.status in {"CONTINUE", "STOP"}
 
 
-@patch("use_cases.bootstrap.category_service.sync_from_yandex")
+@patch("services.category_service.sync_from_yandex")
 @patch("use_cases.bootstrap.auth.sync_users_from_yandex")
 @patch("use_cases.bootstrap.auth.bootstrap_admin")
 @patch("use_cases.bootstrap.auth.init_auth_db")

@@ -35,7 +35,7 @@ def render_dynamics(df_full, df_current):
             fig = px.bar(stats, x='Себестоимость', y='Поставщик', orientation='h')
             st.plotly_chart(ui.update_chart_layout(fig), use_container_width=True)
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner="Готовим график (кэш)...")
 def _cached_build_pie_chart(_df_current, target_cat, selection_signature, data_version):
     cats, _ = analytics_service.compute_menu_tab_data(_df_current, target_cat)
     cats_sorted = cats.sort_values('Выручка с НДС', ascending=False).copy()
@@ -78,7 +78,7 @@ def _cached_build_pie_chart(_df_current, target_cat, selection_signature, data_v
     )
     return fig
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner="Расчет таблицы фудкоста (кэш)...")
 def _cached_prep_aggrid_fc(_df_current, min_rev, min_qty, top_n, selection_signature, data_version):
     period_sorted = _df_current.sort_values('Дата_Отчета')
     cost_start = period_sorted.groupby('Блюдо')['Unit_Cost'].first()
@@ -102,12 +102,6 @@ def _cached_prep_aggrid_fc(_df_current, min_rev, min_qty, top_n, selection_signa
     return df_fc
 
 def render_menu(df_current, df_prev, current_label="", prev_label="", selection_signature=""):
-    with measure("start render_menu (incl skeleton)"):
-        placeholder = st.empty()
-        with placeholder.container():
-            ui.render_skeleton_chart()
-            import time; time.sleep(0.01)
-
     data_version = st.session_state.get('data_version', 1)
     
     view_mode = st.radio("Вид:", ["Макро", "Микро"], horizontal=True, label_visibility="collapsed")
@@ -134,18 +128,19 @@ def render_menu(df_current, df_prev, current_label="", prev_label="", selection_
                 df_fc = _cached_prep_aggrid_fc(df_current, min_rev, min_qty, top_n, selection_signature, data_version)
                 
             with measure("after aggrid"):
-                ui.render_aggrid(
-                df_fc,
-                height=500,
-                pagination=True,
-                formatting={
-                    "С/С начало периода": "%.2f ₽",
-                    "С/С конец периода": "%.2f ₽",
-                    "Факт фудкост %": "%.1f %%",
-                    "Выручка с НДС": "%.0f ₽",
-                    "Кол-во продано": "%.0f"
-                }
-            )
+                st.dataframe(
+                    df_fc,
+                    use_container_width=True,
+                    height=500,
+                    hide_index=True,
+                    column_config={
+                        "Факт фудкост %": st.column_config.NumberColumn(format="%.1f %%"),
+                        "Выручка с НДС": st.column_config.NumberColumn(format="%.0f ₽"),
+                        "С/С начало периода": st.column_config.NumberColumn(format="%.2f ₽"),
+                        "С/С конец периода": st.column_config.NumberColumn(format="%.2f ₽"),
+                        "Кол-во продано": st.column_config.NumberColumn(format="%.0f")
+                    }
+                )
         else:
             st.info("Нет данных для расчета фудкоста.")
 

@@ -3,7 +3,7 @@ from unittest.mock import patch
 from use_cases import bootstrap
 
 
-@patch("use_cases.bootstrap.category_service.sync_from_yandex")
+@patch("services.category_service.sync_from_yandex")
 @patch("use_cases.bootstrap.auth.sync_users_from_yandex")
 @patch("use_cases.bootstrap.auth.bootstrap_admin")
 @patch("use_cases.bootstrap.auth.init_auth_db")
@@ -36,26 +36,21 @@ def test_run_startup_init_happens_before_autosync(_mock_get_secret, _mock_getenv
     bootstrap.session_manager.st.session_state.categories_synced = False
     bootstrap.session_manager.st.session_state.users_synced = False
 
+    def track_user_sync(*_args, **kwargs):
+        if kwargs.get("force"):
+            order.append("sync_users_boot")
+        else:
+            order.append("sync_users_auto")
+
     with patch("use_cases.bootstrap.auth.init_auth_db", side_effect=lambda: order.append("init_auth_db")), patch(
         "use_cases.bootstrap.auth.bootstrap_admin", side_effect=lambda: order.append("bootstrap_admin")
+    ), patch("use_cases.bootstrap.auth.sync_users_from_yandex", side_effect=track_user_sync), patch(
+        "services.category_service.sync_from_yandex", side_effect=lambda _token: order.append("sync_categories")
     ), patch(
         "use_cases.bootstrap.session_manager.init_session_state",
         side_effect=lambda: order.append("init_session_state"),
-    ), patch(
-        "use_cases.bootstrap.category_service.sync_from_yandex",
-        side_effect=lambda _token: order.append("sync_categories"),
     ):
-        def track_user_sync(*_args, **kwargs):
-            if kwargs.get("force"):
-                order.append("sync_users_boot")
-            else:
-                order.append("sync_users_auto")
-
-        with patch(
-            "use_cases.bootstrap.auth.sync_users_from_yandex",
-            side_effect=track_user_sync,
-        ):
-            result = bootstrap.run_startup()
+        result = bootstrap.run_startup()
 
     assert result.status == "CONTINUE"
     assert "init_session_state" in order
