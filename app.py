@@ -420,7 +420,13 @@ if not df_current.empty:
         
         if True:
             if route == report_flow.ReportRoute.MENU:
-                menu_view.render_menu(_df_curr, _df_p, _cur_l, _prev_l, _sig)
+                try:
+                    menu_view.render_menu(_df_curr, _df_p, _cur_l, _prev_l, _sig)
+                except Exception as e:
+                    st.error(f"DEBUG EXCEPTION: {type(e).__name__}: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+                
                 with st.expander("🔬 Расширенные разделы", expanded=False):
                     adv_tab = st.radio("Дополнительно", ["📉 Динамика"], horizontal=True, label_visibility="collapsed")
                     if adv_tab == "📉 Динамика":
